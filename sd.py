@@ -5,9 +5,11 @@ Classes for subgroup-discovery methods.
 
 
 from abc import ABCMeta, abstractmethod
+import time
 from typing import Dict
 
 import pandas as pd
+import z3
 
 
 # Computes the weighted relative accuracy (WRAcc) for two binary (bool or int) series.
@@ -54,3 +56,54 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
     def predict(self, X: pd.DataFrame) -> pd.Series:
         return pd.Series((X.ge(self.get_box_lbs()) & X.le(self.get_box_ubs())).all(
             axis='columns').astype(int), index=X.index)
+
+
+class SMTSubgroupDiscoverer(SubgroupDiscoverer):
+    """SMT-based subgroup-discovery method
+
+    White-box formulation of subgroup discovery as a Satisfiability Modulo Theories (SMT)
+    optimization problem.
+    """
+
+    # Model and optimize subgroup discovery with Z3. Return meta-data about the fitting process
+    # (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        # Define "speaking" names for certain constants in the optimization problem:
+        n_instances = X.shape[0]
+        n_features = X.shape[1]
+        n_pos_instances = y.sum()
+
+        # Define variables of the optimization problem:
+        lb_vars = [z3.Real(f'lb_{j}') for j in range(n_features)]
+        ub_vars = [z3.Real(f'ub_{j}') for j in range(n_features)]
+
+        # Define auxiliary expressions for use in objective and potentially even constraints
+        # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
+        is_instance_in_box = [z3.And([z3.And(float(X.iloc[i, j]) >= lb_vars[j],
+                                             float(X.iloc[i, j]) <= ub_vars[j])
+                                      for j in range(n_features)]) for i in range(n_instances)]
+        n_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var in is_instance_in_box])
+        n_pos_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var, target
+                                         in zip(is_instance_in_box, y) if target == 1])
+
+        # Define optimizer and objective (WRAcc):
+        optimizer = z3.Optimize()
+        optimizer.maximize(n_pos_instances_in_box / n_instances -
+                           n_instances_in_box * n_pos_instances / (n_instances ** 2))
+
+        # Define constraints: Relationship between lower and upper bound for each feature
+        for j in range(n_features):
+            optimizer.add(lb_vars[j] <= ub_vars[j])
+
+        # Optimize and store/return results:
+        start_time = time.process_time()
+        optimization_status = optimizer.check()
+        end_time = time.process_time()
+        self._box_lbs = pd.Series([optimizer.model()[x].numerator_as_long() /
+                                   optimizer.model()[x].denominator_as_long() for x in lb_vars],
+                                  index=X.columns)
+        self._box_ubs = pd.Series([optimizer.model()[x].numerator_as_long() /
+                                   optimizer.model()[x].denominator_as_long() for x in ub_vars],
+                                  index=X.columns)
+        return {'optimization_status': str(optimization_status),
+                'optimization_time': end_time - start_time}
