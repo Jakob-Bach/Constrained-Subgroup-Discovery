@@ -8,6 +8,7 @@ from abc import ABCMeta, abstractmethod
 import time
 from typing import Dict
 
+import mip
 import pandas as pd
 import z3
 
@@ -15,6 +16,8 @@ import z3
 # Computes the weighted relative accuracy (WRAcc) for two binary (bool or int) series.
 def wracc(y_true: pd.Series, y_pred: pd.Series) -> float:
     assert len(y_true) == len(y_pred), "Prediction and ground truth need to have same length."
+    assert y_true.isin((0, 1, False, True)).all(), "Each ground-truth label needs to be binary."
+    assert y_pred.isin((0, 1, False, True)).all(), "Each predicted label needs to be binary."
     n_true_pos = (y_true & y_pred).sum()
     n_instances = len(y_true)
     n_actual_pos = y_true.sum()
@@ -58,6 +61,98 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
             axis='columns').astype(int), index=X.index)
 
 
+class MIPSubgroupDiscoverer(SubgroupDiscoverer):
+    """MIP-based subgroup discovery method
+
+    White-box formulation of subgroup discovery as a Mixed Integer Programming (MIP) optimization
+    problem.
+    """
+
+    # Model and optimize subgroup discovery with Python-MIP. Return meta-data about the fitting
+    # process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+
+        # Define "speaking" names for certain constants in the optimization problem:
+        n_instances = X.shape[0]
+        n_features = X.shape[1]
+        n_pos_instances = y.sum()
+        feature_minima = X.min().to_list()
+        feature_maxima = X.max().to_list()
+        feature_diff_minima = X.apply(lambda col: pd.Series(col.sort_values().unique()).diff(
+            ).min()).fillna(0)  # fillna() covers case that all values identical
+
+        # Define optimizer:
+        model = mip.Model()
+        model.verbose = 0
+        assert feature_diff_minima.min() >= model.infeas_tol, 'Some inequalities may be not strict'
+        feature_diff_minima = feature_diff_minima.to_list()
+
+        # Define variables of the optimization problem:
+        lb_vars = [model.add_var(name=f'lb_{j}', var_type=mip.CONTINUOUS, lb=feature_minima[j],
+                                 ub=feature_maxima[j]) for j in range(n_features)]
+        ub_vars = [model.add_var(name=f'ub_{j}', var_type=mip.CONTINUOUS, lb=feature_minima[j],
+                                 ub=feature_maxima[j]) for j in range(n_features)]
+        is_instance_in_box_vars = [model.add_var(name=f'x_{i}', var_type=mip.BINARY)
+                                   for i in range(n_instances)]
+        is_value_in_box_lb_vars = [[model.add_var(name=f'x_lb_{i}_{j}', var_type=mip.BINARY)
+                                    for j in range(n_features)] for i in range(n_instances)]
+        is_value_in_box_ub_vars = [[model.add_var(name=f'x_ub_{i}_{j}', var_type=mip.BINARY)
+                                    for j in range(n_features)] for i in range(n_instances)]
+
+        # Define auxiliary expressions for use in objective and potentially even constraints
+        # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
+        n_instances_in_box = mip.xsum(is_instance_in_box_vars)
+        n_pos_instances_in_box = mip.xsum(var for var, target in zip(is_instance_in_box_vars, y)
+                                          if target == 1)
+
+        # Define objective (WRAcc):
+        model.objective = mip.maximize(n_pos_instances_in_box / n_instances -
+                                       n_instances_in_box * n_pos_instances / (n_instances ** 2))
+
+        # Define constraints:
+        # (1) Identify for each instance if it is in the subgroup's box or not
+        for i in range(n_instances):
+            for j in range(n_features):
+                # Approach for modeling constraint satisfaction: Binary variables (here:
+                # "is_value_in_box_lb_vars[i][j]") indicate whether constraint satisfied
+                # https://docs.mosek.com/modeling-cookbook/mio.html#constraint-satisfaction
+                M = 2 * (feature_maxima[j] - feature_minima[j])  # large positive value
+                m = 2 * (feature_minima[j] - feature_maxima[j])  # large (absolute) negative value
+                model.add_constr(float(X.iloc[i, j]) + m * is_value_in_box_lb_vars[i][j]
+                                 <= lb_vars[j] - feature_diff_minima[j])  # get < rather than <=
+                model.add_constr(lb_vars[j]
+                                 <= float(X.iloc[i, j]) + M * (1 - is_value_in_box_lb_vars[i][j]))
+                model.add_constr(ub_vars[j] + m * is_value_in_box_ub_vars[i][j]
+                                 <= float(X.iloc[i, j]) - feature_diff_minima[j])
+                model.add_constr(float(X.iloc[i, j])
+                                 <= ub_vars[j] + M * (1 - is_value_in_box_ub_vars[i][j]))
+                # AND operator: https://docs.mosek.com/modeling-cookbook/mio.html#boolean-operators
+                model.add_constr(is_instance_in_box_vars[i] <= is_value_in_box_lb_vars[i][j])
+                model.add_constr(is_instance_in_box_vars[i] <= is_value_in_box_ub_vars[i][j])
+                # third constraint for AND moved outside loop and summed up over features, since
+                # only simultaneous satisfaction of all LB/UB constraints implies instance in box
+            model.add_constr(mip.xsum(is_value_in_box_lb_vars[i]) + mip.xsum(is_value_in_box_ub_vars[i])
+                             <= is_instance_in_box_vars[i] + 2 * n_features - 1)
+        # (2) Relationship between lower and upper bound for each feature
+        for j in range(n_features):
+            model.add_constr(lb_vars[j] <= ub_vars[j])
+
+        # Optimize and store/return results:
+        start_time = time.process_time()
+        optimization_status = model.optimize()
+        end_time = time.process_time()
+        # Directly extracting values of "lb_vars" and "ub_vars" can lead to numeric issues (e.g.,
+        # instance from within box might fall slightly outside, even if all numerical tolerances
+        # set to 0 in optimization), so we use actual feature values of instances in box instead;
+        # nice side-effect: box is tight around instances instead extending into margin around them
+        is_instance_in_box = [bool(var.x) for var in is_instance_in_box_vars]
+        self._box_lbs = X.iloc[is_instance_in_box].min()
+        self._box_ubs = X.iloc[is_instance_in_box].max()
+        return {'optimization_status': optimization_status.name,
+                'optimization_time': end_time - start_time}
+
+
 class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     """SMT-based subgroup-discovery method
 
@@ -68,6 +163,8 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     # Model and optimize subgroup discovery with Z3. Return meta-data about the fitting process
     # (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+
         # Define "speaking" names for certain constants in the optimization problem:
         n_instances = X.shape[0]
         n_features = X.shape[1]
