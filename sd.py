@@ -60,6 +60,18 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
         return pd.Series((X.ge(self.get_box_lbs()) & X.le(self.get_box_ubs())).all(
             axis='columns').astype(int), index=X.index)
 
+    # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
+    # Returns a dictionary with evaluation metrics.
+    def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
+                 y_test: pd.Series) -> Dict[str, float]:
+        start_time = time.process_time()
+        results = self.fit(X=X_train, y=y_train)
+        end_time = time.process_time()
+        results['fitting_time'] = end_time - start_time
+        results['train_wracc'] = wracc(y_true=y_train, y_pred=self.predict(X=X_train))
+        results['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
+        return results
+
 
 class MIPSubgroupDiscoverer(SubgroupDiscoverer):
     """MIP-based subgroup discovery method

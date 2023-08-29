@@ -5,9 +5,11 @@ Functions for data I/O in the experimental pipeline (prediction datasets and exp
 
 
 import pathlib
-from typing import Optional, Sequence, Tuple
+from typing import Generator, Optional, Sequence, Tuple
 
+import numpy as np
 import pandas as pd
+import sklearn.model_selection
 
 
 # Feature-part and target-part of a dataset are saved separately.
@@ -34,6 +36,14 @@ def load_dataset_overview(directory: pathlib.Path) -> pd.DataFrame:
 
 def save_dataset_overview(dataset_overview: pd.DataFrame, directory: pathlib.Path) -> None:
     dataset_overview.to_csv(directory / '_dataset_overview.csv', index=False)
+
+
+# Split a dataset for the experimental pipeline. Return the split indices.
+def split_for_pipeline(X: pd.DataFrame, y: pd.Series, n_splits: int = 5)\
+        -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
+    splitter = sklearn.model_selection.StratifiedKFold(n_splits=n_splits, shuffle=True,
+                                                       random_state=25)
+    return splitter.split(X=X, y=y)
 
 
 # Return the path of the file containing either complete experimental results or only a particular
