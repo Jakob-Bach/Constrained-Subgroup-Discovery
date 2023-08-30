@@ -36,6 +36,7 @@ def prepare_datasets(data_dir: pathlib.Path) -> None:
     print('Saving toy datasets ...')
     for dataset_name in tqdm.tqdm(TOY_DATASETS_NAMES):
         X, y = getattr(sklearn.datasets, 'load_' + dataset_name)(as_frame=True, return_X_y=True)
+        y = (y == 0).astype(int)  # binarize multi-class targets by predicting Class 0
         data_handling.save_dataset(X=X, y=y, dataset_name=dataset_name, directory=data_dir)
         dataset_overview.append({'dataset': dataset_name, 'n_instances': X.shape[0],
                                  'n_features': X.shape[1]})
