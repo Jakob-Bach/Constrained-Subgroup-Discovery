@@ -97,7 +97,8 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         # Define optimizer:
         model = mip.Model()
         model.verbose = 0
-        assert feature_diff_minima.min() >= model.infeas_tol, 'Some inequalities may be not strict'
+        model.infeas_tol = 0  # prevent violation of constraints; if > 0, use following assertion:
+        # assert feature_diff_minima.min() >= model.infeas_tol, 'Inequalities may not be strict.'
         feature_diff_minima = feature_diff_minima.to_list()
 
         # Define variables of the optimization problem:
