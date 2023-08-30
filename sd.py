@@ -186,22 +186,27 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         # Define variables of the optimization problem:
         lb_vars = [z3.Real(f'lb_{j}') for j in range(n_features)]
         ub_vars = [z3.Real(f'ub_{j}') for j in range(n_features)]
+        is_instance_in_box_vars = [z3.Bool(f'x_{i}') for i in range(n_instances)]
 
         # Define auxiliary expressions for use in objective and potentially even constraints
         # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
-        is_instance_in_box = [z3.And([z3.And(float(X.iloc[i, j]) >= lb_vars[j],
-                                             float(X.iloc[i, j]) <= ub_vars[j])
-                                      for j in range(n_features)]) for i in range(n_instances)]
-        n_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var in is_instance_in_box])
+        n_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var in is_instance_in_box_vars])
         n_pos_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var, target
-                                         in zip(is_instance_in_box, y) if target == 1])
+                                         in zip(is_instance_in_box_vars, y) if target == 1])
 
         # Define optimizer and objective (WRAcc):
         optimizer = z3.Optimize()
         optimizer.maximize(n_pos_instances_in_box / n_instances -
                            n_instances_in_box * n_pos_instances / (n_instances ** 2))
 
-        # Define constraints: Relationship between lower and upper bound for each feature
+        # Define constraints:
+        # (1) Identify for each instance if it is in the subgroup's box or not
+        for i in range(n_instances):
+            optimizer.add(is_instance_in_box_vars[i] ==
+                          z3.And([z3.And(float(X.iloc[i, j]) >= lb_vars[j],
+                                         float(X.iloc[i, j]) <= ub_vars[j])
+                                  for j in range(n_features)]))
+        # (2) Relationship between lower and upper bound for each feature
         for j in range(n_features):
             optimizer.add(lb_vars[j] <= ub_vars[j])
 
@@ -209,11 +214,10 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         start_time = time.process_time()
         optimization_status = optimizer.check()
         end_time = time.process_time()
-        self._box_lbs = pd.Series([optimizer.model()[x].numerator_as_long() /
-                                   optimizer.model()[x].denominator_as_long() for x in lb_vars],
-                                  index=X.columns)
-        self._box_ubs = pd.Series([optimizer.model()[x].numerator_as_long() /
-                                   optimizer.model()[x].denominator_as_long() for x in ub_vars],
-                                  index=X.columns)
+        # To avoid potential numeric issues when extracting values of real variables, use actual
+        # feature values of instances in box as bounds (also makes box tight around instances)
+        is_instance_in_box = [bool(optimizer.model()[var]) for var in is_instance_in_box_vars]
+        self._box_lbs = X.iloc[is_instance_in_box].min()
+        self._box_ubs = X.iloc[is_instance_in_box].max()
         return {'optimization_status': str(optimization_status),
                 'optimization_time': end_time - start_time}
