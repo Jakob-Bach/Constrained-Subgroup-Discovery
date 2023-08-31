@@ -161,7 +161,9 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         # nice side-effect: box is tight around instances instead extending into margin around them
         is_instance_in_box = [bool(var.x) for var in is_instance_in_box_vars]
         self._box_lbs = X.iloc[is_instance_in_box].min()
+        self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
         self._box_ubs = X.iloc[is_instance_in_box].max()
+        self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
         return {'optimization_status': optimization_status.name,
                 'optimization_time': end_time - start_time}
 
@@ -182,6 +184,8 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         n_instances = X.shape[0]
         n_features = X.shape[1]
         n_pos_instances = y.sum()
+        feature_minima = X.min().to_list()
+        feature_maxima = X.max().to_list()
 
         # Define variables of the optimization problem:
         lb_vars = [z3.Real(f'lb_{j}') for j in range(n_features)]
@@ -218,6 +222,8 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         # feature values of instances in box as bounds (also makes box tight around instances)
         is_instance_in_box = [bool(optimizer.model()[var]) for var in is_instance_in_box_vars]
         self._box_lbs = X.iloc[is_instance_in_box].min()
+        self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
         self._box_ubs = X.iloc[is_instance_in_box].max()
+        self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
         return {'optimization_status': str(optimization_status),
                 'optimization_time': end_time - start_time}
