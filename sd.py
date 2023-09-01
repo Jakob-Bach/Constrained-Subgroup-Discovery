@@ -8,7 +8,7 @@ from abc import ABCMeta, abstractmethod
 import time
 from typing import Dict
 
-import mip
+from ortools.linear_solver import pywraplp
 import pandas as pd
 import z3
 
@@ -92,36 +92,32 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         feature_minima = X.min().to_list()
         feature_maxima = X.max().to_list()
         feature_diff_minima = X.apply(lambda col: pd.Series(col.sort_values().unique()).diff(
-            ).min()).fillna(0)  # fillna() covers case that all values identical
+            ).min()).fillna(0).to_list()  # fillna() covers case that all values identical
 
         # Define optimizer:
-        model = mip.Model()
-        model.verbose = 0
-        model.infeas_tol = 0  # prevent violation of constraints; if > 0, use following assertion:
-        # assert feature_diff_minima.min() >= model.infeas_tol, 'Inequalities may not be strict.'
-        feature_diff_minima = feature_diff_minima.to_list()
+        model = pywraplp.Solver.CreateSolver('SCIP')
+        model.SetNumThreads(1)
 
         # Define variables of the optimization problem:
-        lb_vars = [model.add_var(name=f'lb_{j}', var_type=mip.CONTINUOUS, lb=feature_minima[j],
-                                 ub=feature_maxima[j]) for j in range(n_features)]
-        ub_vars = [model.add_var(name=f'ub_{j}', var_type=mip.CONTINUOUS, lb=feature_minima[j],
-                                 ub=feature_maxima[j]) for j in range(n_features)]
-        is_instance_in_box_vars = [model.add_var(name=f'x_{i}', var_type=mip.BINARY)
+        lb_vars = [model.NumVar(name=f'lb_{j}', lb=feature_minima[j], ub=feature_maxima[j])
+                   for j in range(n_features)]
+        ub_vars = [model.NumVar(name=f'ub_{j}', lb=feature_minima[j], ub=feature_maxima[j])
+                   for j in range(n_features)]
+        is_instance_in_box_vars = [model.BoolVar(name=f'x_{i}') for i in range(n_instances)]
+        is_value_in_box_lb_vars = [[model.BoolVar(name=f'x_lb_{i}_{j}') for j in range(n_features)]
                                    for i in range(n_instances)]
-        is_value_in_box_lb_vars = [[model.add_var(name=f'x_lb_{i}_{j}', var_type=mip.BINARY)
-                                    for j in range(n_features)] for i in range(n_instances)]
-        is_value_in_box_ub_vars = [[model.add_var(name=f'x_ub_{i}_{j}', var_type=mip.BINARY)
-                                    for j in range(n_features)] for i in range(n_instances)]
+        is_value_in_box_ub_vars = [[model.BoolVar(name=f'x_ub_{i}_{j}') for j in range(n_features)]
+                                   for i in range(n_instances)]
 
         # Define auxiliary expressions for use in objective and potentially even constraints
         # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
-        n_instances_in_box = mip.xsum(is_instance_in_box_vars)
-        n_pos_instances_in_box = mip.xsum(var for var, target in zip(is_instance_in_box_vars, y)
-                                          if target == 1)
+        n_instances_in_box = model.Sum(is_instance_in_box_vars)
+        n_pos_instances_in_box = model.Sum([var for var, target in zip(is_instance_in_box_vars, y)
+                                            if target == 1])
 
         # Define objective (WRAcc):
-        model.objective = mip.maximize(n_pos_instances_in_box / n_instances -
-                                       n_instances_in_box * n_pos_instances / (n_instances ** 2))
+        model.Maximize(n_pos_instances_in_box / n_instances -
+                       n_instances_in_box * n_pos_instances / (n_instances ** 2))
 
         # Define constraints:
         # (1) Identify for each instance if it is in the subgroup's box or not
@@ -132,39 +128,39 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
                 # https://docs.mosek.com/modeling-cookbook/mio.html#constraint-satisfaction
                 M = 2 * (feature_maxima[j] - feature_minima[j])  # large positive value
                 m = 2 * (feature_minima[j] - feature_maxima[j])  # large (absolute) negative value
-                model.add_constr(float(X.iloc[i, j]) + m * is_value_in_box_lb_vars[i][j]
-                                 <= lb_vars[j] - feature_diff_minima[j])  # get < rather than <=
-                model.add_constr(lb_vars[j]
-                                 <= float(X.iloc[i, j]) + M * (1 - is_value_in_box_lb_vars[i][j]))
-                model.add_constr(ub_vars[j] + m * is_value_in_box_ub_vars[i][j]
-                                 <= float(X.iloc[i, j]) - feature_diff_minima[j])
-                model.add_constr(float(X.iloc[i, j])
-                                 <= ub_vars[j] + M * (1 - is_value_in_box_ub_vars[i][j]))
+                model.Add(float(X.iloc[i, j]) + m * is_value_in_box_lb_vars[i][j]
+                          <= lb_vars[j] - feature_diff_minima[j])  # get < rather than <=
+                model.Add(lb_vars[j]
+                          <= float(X.iloc[i, j]) + M * (1 - is_value_in_box_lb_vars[i][j]))
+                model.Add(ub_vars[j] + m * is_value_in_box_ub_vars[i][j]
+                          <= float(X.iloc[i, j]) - feature_diff_minima[j])
+                model.Add(float(X.iloc[i, j])
+                          <= ub_vars[j] + M * (1 - is_value_in_box_ub_vars[i][j]))
                 # AND operator: https://docs.mosek.com/modeling-cookbook/mio.html#boolean-operators
-                model.add_constr(is_instance_in_box_vars[i] <= is_value_in_box_lb_vars[i][j])
-                model.add_constr(is_instance_in_box_vars[i] <= is_value_in_box_ub_vars[i][j])
+                model.Add(is_instance_in_box_vars[i] <= is_value_in_box_lb_vars[i][j])
+                model.Add(is_instance_in_box_vars[i] <= is_value_in_box_ub_vars[i][j])
                 # third constraint for AND moved outside loop and summed up over features, since
                 # only simultaneous satisfaction of all LB/UB constraints implies instance in box
-            model.add_constr(mip.xsum(is_value_in_box_lb_vars[i]) + mip.xsum(is_value_in_box_ub_vars[i])
-                             <= is_instance_in_box_vars[i] + 2 * n_features - 1)
+            model.Add(model.Sum(is_value_in_box_lb_vars[i]) + model.Sum(is_value_in_box_ub_vars[i])
+                      <= is_instance_in_box_vars[i] + 2 * n_features - 1)
         # (2) Relationship between lower and upper bound for each feature
         for j in range(n_features):
-            model.add_constr(lb_vars[j] <= ub_vars[j])
+            model.Add(lb_vars[j] <= ub_vars[j])
 
         # Optimize and store/return results:
         start_time = time.process_time()
-        optimization_status = model.optimize()
+        optimization_status = model.Solve()
         end_time = time.process_time()
         # Directly extracting values of "lb_vars" and "ub_vars" can lead to numeric issues (e.g.,
         # instance from within box might fall slightly outside, even if all numerical tolerances
         # set to 0 in optimization), so we use actual feature values of instances in box instead;
         # nice side-effect: box is tight around instances instead extending into margin around them
-        is_instance_in_box = [bool(var.x) for var in is_instance_in_box_vars]
+        is_instance_in_box = [bool(var.solution_value()) for var in is_instance_in_box_vars]
         self._box_lbs = X.iloc[is_instance_in_box].min()
         self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
         self._box_ubs = X.iloc[is_instance_in_box].max()
         self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
-        return {'optimization_status': optimization_status.name,
+        return {'optimization_status': optimization_status,
                 'optimization_time': end_time - start_time}
 
 
