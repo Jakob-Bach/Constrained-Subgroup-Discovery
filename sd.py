@@ -10,6 +10,7 @@ from typing import Dict
 
 from ortools.linear_solver import pywraplp
 import pandas as pd
+import prim
 import z3
 
 
@@ -222,4 +223,30 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         self._box_ubs = X.iloc[is_instance_in_box].max()
         self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
         return {'optimization_status': str(optimization_status),
+                'optimization_time': end_time - start_time}
+
+
+class PrimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
+    """PRIM algorithm from the package "prim"
+
+    Heuristic search procedure with a peeling phase (iteratively decreasing the range of the
+    subgroup) and a pasting phase (iteratively increasing the range of the subgroup).
+
+    Literature: Friedman & Fisher (1999): "Bump hunting in high-dimensional data"
+    """
+
+    # Run the PRIM algorithm with its default hyperparameters. Return meta-data about the fitting
+    # process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        model = prim.Prim(x=X, y=y)
+        start_time = time.process_time()
+        box = model.find_box()
+        end_time = time.process_time()
+        # Box only contains bounds for restricted features; thus, we initialize all features first:
+        self._box_lbs = pd.Series([-float('inf')] * X.shape[1], index=X.columns)
+        self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
+        self._box_lbs[box.limits.index] = box.limits['min']
+        self._box_ubs[box.limits.index] = box.limits['max']
+        return {'optimization_status': None,
                 'optimization_time': end_time - start_time}
