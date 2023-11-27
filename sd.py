@@ -228,6 +228,33 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
                 'optimization_time': end_time - start_time}
 
 
+class MORBSubgroupDiscoverer(SubgroupDiscoverer):
+    """MORB (Minimal Optimal-Recall Box) baseline for subgroup discovery
+
+    Choose the bounds as the minimum and maximum feature value of positive instances, so the box
+    contains all positive instances and has the minimal size of all boxes doing so. Finds the
+    optimal solution if a box exists that contains all positive and no negative instances.
+    """
+
+    # Choose the minimal box that still has optimal recall (= 1). Return meta-data about the
+    # fitting process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        # "Optimization": Find minima and maxima of positive instances:
+        start_time = time.process_time()
+        self._box_lbs = X[y == 1].min()
+        self._box_ubs = X[y == 1].max()
+        end_time = time.process_time()
+        # Post-processing (as for optimizer-based solutions): if box extends to the limit of
+        # feature values in the given data, treat this value as unbounded
+        feature_minima = X.min().to_list()
+        feature_maxima = X.max().to_list()
+        self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
+        self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+
 class PrimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
     """PRIM algorithm from the package "prim"
 
