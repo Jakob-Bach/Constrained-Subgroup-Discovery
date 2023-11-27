@@ -10,6 +10,8 @@ from typing import Dict
 
 from ortools.linear_solver import pywraplp
 import pandas as pd
+import prelim.sd.BI
+import prelim.sd.PRIM
 import prim
 import z3
 
@@ -248,5 +250,54 @@ class PrimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
         self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
         self._box_lbs[box.limits.index] = box.limits['min']
         self._box_ubs[box.limits.index] = box.limits['max']
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+
+class PrelimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
+    """PRIM algorithm from the package "prelim"
+
+    Heuristic search procedure with a peeling phase (iteratively decreasing the range of the
+    subgroup) and a pasting phase (iteratively increasing the range of the subgroup).
+    In this version of the algorithm, only the peeling phase is implemented.
+
+    Literature: Friedman & Fisher (1999): "Bump hunting in high-dimensional data"
+    """
+
+    # Run the PRIM algorithm with its default hyperparameters. Return meta-data about the fitting
+    # process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        model = prelim.sd.PRIM.PRIM()
+        start_time = time.process_time()
+        model.fit(X=X, y=y)
+        end_time = time.process_time()
+        # Unrestricted features of box are -/+ inf by default, so no separate initalization needed
+        self._box_lbs = pd.Series(model.box_[0], index=X.columns)
+        self._box_ubs = pd.Series(model.box_[1], index=X.columns)
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+
+class BISubgroupDiscoverer(SubgroupDiscoverer):
+    """BI algorithm from the package "prelim"
+
+    Heuristic search procedure using beam search.
+
+    Literature: Mampaey et a. (2012): "Efficient Algorithms for Finding Richer Subgroup
+    Descriptions in Numeric and Nominal Data"
+    """
+
+    # Run the BI algorithm with its default hyperparameters. Return meta-data about the fitting
+    # process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        model = prelim.sd.BI.BI()
+        start_time = time.process_time()
+        model.fit(X=X, y=y)
+        end_time = time.process_time()
+        # Unrestricted features of box are -/+ inf by default, so no separate initalization needed
+        self._box_lbs = pd.Series(model.box_[0], index=X.columns)
+        self._box_ubs = pd.Series(model.box_[1], index=X.columns)
         return {'optimization_status': None,
                 'optimization_time': end_time - start_time}
