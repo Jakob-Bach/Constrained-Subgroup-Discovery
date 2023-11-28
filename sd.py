@@ -13,6 +13,7 @@ from ortools.linear_solver import pywraplp
 import pandas as pd
 import prelim.sd.BI
 import prelim.sd.PRIM
+import pysubgroup
 import prim
 import z3
 
@@ -374,3 +375,99 @@ class BISubgroupDiscoverer(PrelimSubgroupDiscoverer):
 
     def __init__(self):
         super().__init__(model_type=prelim.sd.BI.BI)
+
+
+class PysubgroupSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
+    """Subgroup-discovery algorithm from the package "pysubgroup"
+
+    Superclass wrapping algorithms from the package "pysubgroup". Subclasses need to set a concrete
+    "model_type" (= algorithm) in the initializer.
+    """
+
+    # Sets field for internal model type. Cannot really be any type, but the classes in
+    # "pysubgroup" don't have a common superclass, though they share a common interface
+    # (particularly an execute() method).
+    def __init__(self, model_type: Type[Any]):
+        super().__init__()
+        self._model_type = model_type
+
+    # Run the algorithm from "pysubgroup" with its default hyperparameters up a depth of
+    # 2 * |features|. Return meta-data about the fitting process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        model = self._model_type()
+        data = pd.concat((X, y), axis='columns')
+        target = pysubgroup.BinaryTarget(target_attribute='target', target_value=1)
+        # Create box bounds at each feature value manually (pysubgroub.create_selectors() bins
+        # numeric features, which we don't want):
+        search_space = []
+        for feature in X.columns:
+            for value in X[feature].unique():
+                search_space.append(pysubgroup.IntervalSelector(feature, value, float('inf')))
+                search_space.append(pysubgroup.IntervalSelector(feature, float('-inf'), value))
+        task = pysubgroup.SubgroupDiscoveryTask(
+            data=data, target=target, search_space=search_space, result_set_size=1,
+            depth=(2 * X.shape[1]),  qf=pysubgroup.WRAccQF())  # depth = max number of conditions
+        start_time = time.process_time()
+        results = model.execute(task).to_dataframe()
+        end_time = time.process_time()
+        # Box only contains bounds for restricted features; thus, we initialize all features first:
+        self._box_lbs = pd.Series([-float('inf')] * X.shape[1], index=X.columns)
+        self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
+        for selector in results['subgroup'].iloc[0].selectors:
+            # Subgroup description may contain multiple (redundant) lower or upper bounds for same
+            # feature, so we use min/max to only keep the tighest ones:
+            self._box_lbs[selector.attribute_name] = max(selector.lower_bound,
+                                                         self._box_lbs[selector.attribute_name])
+            self._box_ubs[selector.attribute_name] = min(selector.upper_bound,
+                                                         self._box_ubs[selector.attribute_name])
+        # Pysubgroup uses < (right-open intervals) instead of <= constraints for upper bounds,
+        # which we transform to <= regarding next smaller feature value (consistent with other
+        # approaches in this file; alternatively, could subtract a small constant)
+        for feature in X.columns:
+            if self._box_ubs[feature] < float('inf'):
+                self._box_ubs[feature] = max(X[feature][X[feature] < self._box_ubs[feature]])
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+
+class AprioriSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
+    """Apriori algorithm from the package "pysubgroup"
+
+    Exact search procedure that iteratively forms subgroups by adding (feature-value)
+    conditions to the subgroup and uses quality-based pruning.
+    """
+
+    def __init__(self):
+        super().__init__(model_type=pysubgroup.Apriori)
+
+
+class BeamSearchSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
+    """Beam-search algorithm from the package "pysubgroup"
+
+    Heuristic search procedure that iteratively forms subgroups by adding (feature-value)
+    conditions to the subgroup.
+    """
+
+    def __init__(self):
+        super().__init__(model_type=pysubgroup.BeamSearch)
+
+
+class GpGrowthSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
+    """GP-Growth algorithm from the package "pysubgroup"
+
+    Exact search procedure based on frequent pattern growth.
+    """
+
+    def __init__(self):
+        super().__init__(model_type=pysubgroup.GpGrowth)
+
+
+class DFSSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
+    """Depth-first-search algorithm from the package "pysubgroup"
+
+    Exact search procedure that recursively adds (feature-value) conditions to the subgroup.
+    """
+
+    def __init__(self):
+        super().__init__(model_type=pysubgroup.SimpleDFS)
