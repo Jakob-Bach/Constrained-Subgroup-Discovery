@@ -5,6 +5,7 @@ Classes for subgroup-discovery methods.
 
 
 from abc import ABCMeta, abstractmethod
+import random
 import time
 from typing import Dict
 
@@ -247,10 +248,48 @@ class MORBSubgroupDiscoverer(SubgroupDiscoverer):
         end_time = time.process_time()
         # Post-processing (as for optimizer-based solutions): if box extends to the limit of
         # feature values in the given data, treat this value as unbounded
-        feature_minima = X.min().to_list()
-        feature_maxima = X.max().to_list()
-        self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
-        self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
+        self._box_lbs[self._box_lbs == X.min()] = float('-inf')
+        self._box_ubs[self._box_ubs == X.max()] = float('inf')
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+
+class RandomSubgroupDiscoverer(SubgroupDiscoverer):
+    """Random-sampling baseline for subgroup discovery
+
+    Choose the bounds repeatedly uniformly random from the unique values of each feature.
+    """
+
+    # Initialize fields used in the search.
+    def __init__(self, n_repetitions: int = 1000):
+        super().__init__()
+        self._n_repetitions = n_repetitions
+
+    # Repeatedly sample random boxes and pick the best of them. Return meta-data about the fitting
+    # process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        unique_feature_values = [X[col].unique().tolist() for col in X.columns]
+        rng = random.Random(25)
+        # "Optimization": Repeated random sampling
+        start_time = time.process_time()
+        opt_quality = float('-inf')
+        for _ in range(self._n_repetitions):
+            bounds = [rng.sample(x, k=2) for x in unique_feature_values]  # still LB/UB unordered
+            self._box_lbs = pd.Series([min(x) for x in bounds], index=X.columns)
+            self._box_ubs = pd.Series([max(x) for x in bounds], index=X.columns)
+            quality = wracc(y_true=y, y_pred=self.predict(X=X))
+            if quality > opt_quality:
+                opt_quality = quality
+                opt_box_lbs = self._box_lbs
+                opt_box_ubs = self._box_ubs
+        end_time = time.process_time()
+        # Post-processing (as for optimizer-based solutions): if box extends to the limit of
+        # feature values in the given data, treat this value as unbounded
+        self._box_lbs = opt_box_lbs
+        self._box_ubs = opt_box_ubs
+        self._box_lbs[self._box_lbs == X.min()] = float('-inf')
+        self._box_ubs[self._box_ubs == X.max()] = float('inf')
         return {'optimization_status': None,
                 'optimization_time': end_time - start_time}
 
