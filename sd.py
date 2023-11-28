@@ -7,7 +7,7 @@ Classes for subgroup-discovery methods.
 from abc import ABCMeta, abstractmethod
 import random
 import time
-from typing import Dict
+from typing import Any, Dict, Type
 
 from ortools.linear_solver import pywraplp
 import pandas as pd
@@ -320,7 +320,36 @@ class PrimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
                 'optimization_time': end_time - start_time}
 
 
-class PrelimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
+class PrelimSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
+    """Subgroup-discovery algorithm from the package "prelim"
+
+    Superclass wrapping algorithms from the package "prelim". Subclasses need to set a concrete
+    "model_type" (= algorithm) in the initializer.
+    """
+
+    # Sets field for internal model type. Cannot really be any type, but the classes in "prelim"
+    # don't have a common superclass. The "model" needs to have a fit() method that returns a box
+    # with a special format.
+    def __init__(self, model_type: Type[Any]):
+        super().__init__()
+        self._model_type = model_type
+
+    # Run the algorithm from "prelim" with its default hyperparameters. Return meta-data about the
+    # fitting process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        model = self._model_type()
+        start_time = time.process_time()
+        model.fit(X=X, y=y)
+        end_time = time.process_time()
+        # Unrestricted features of box are -/+ inf by default, so no separate initalization needed
+        self._box_lbs = pd.Series(model.box_[0], index=X.columns)
+        self._box_ubs = pd.Series(model.box_[1], index=X.columns)
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+
+class PrelimPRIMSubgroupDiscoverer(PrelimSubgroupDiscoverer):
     """PRIM algorithm from the package "prelim"
 
     Heuristic search procedure with a peeling phase (iteratively decreasing the range of the
@@ -330,22 +359,11 @@ class PrelimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
     Literature: Friedman & Fisher (1999): "Bump hunting in high-dimensional data"
     """
 
-    # Run the PRIM algorithm with its default hyperparameters. Return meta-data about the fitting
-    # process (see superclass for more details).
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
-        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        model = prelim.sd.PRIM.PRIM()
-        start_time = time.process_time()
-        model.fit(X=X, y=y)
-        end_time = time.process_time()
-        # Unrestricted features of box are -/+ inf by default, so no separate initalization needed
-        self._box_lbs = pd.Series(model.box_[0], index=X.columns)
-        self._box_ubs = pd.Series(model.box_[1], index=X.columns)
-        return {'optimization_status': None,
-                'optimization_time': end_time - start_time}
+    def __init__(self):
+        super().__init__(model_type=prelim.sd.PRIM.PRIM)
 
 
-class BISubgroupDiscoverer(SubgroupDiscoverer):
+class BISubgroupDiscoverer(PrelimSubgroupDiscoverer):
     """BI algorithm from the package "prelim"
 
     Heuristic search procedure using beam search.
@@ -354,16 +372,5 @@ class BISubgroupDiscoverer(SubgroupDiscoverer):
     Descriptions in Numeric and Nominal Data"
     """
 
-    # Run the BI algorithm with its default hyperparameters. Return meta-data about the fitting
-    # process (see superclass for more details).
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
-        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        model = prelim.sd.BI.BI()
-        start_time = time.process_time()
-        model.fit(X=X, y=y)
-        end_time = time.process_time()
-        # Unrestricted features of box are -/+ inf by default, so no separate initalization needed
-        self._box_lbs = pd.Series(model.box_[0], index=X.columns)
-        self._box_ubs = pd.Series(model.box_[1], index=X.columns)
-        return {'optimization_status': None,
-                'optimization_time': end_time - start_time}
+    def __init__(self):
+        super().__init__(model_type=prelim.sd.BI.BI)
