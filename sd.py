@@ -5,9 +5,12 @@ Classes for subgroup-discovery methods.
 
 
 from abc import ABCMeta, abstractmethod
+import contextlib
+import os
 import random
 import time
 from typing import Any, Dict, Type
+import warnings
 
 from ortools.linear_solver import pywraplp
 import pandas as pd
@@ -395,7 +398,8 @@ class PysubgroupSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     # 2 * |features|. Return meta-data about the fitting process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        model = self._model_type()
+        with open(os.devnull, 'w') as file, contextlib.redirect_stdout(file):  # silence print()
+            model = self._model_type()
         data = pd.concat((X, y), axis='columns')
         target = pysubgroup.BinaryTarget(target_attribute='target', target_value=1)
         # Create box bounds at each feature value manually (pysubgroub.create_selectors() bins
@@ -409,7 +413,10 @@ class PysubgroupSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
             data=data, target=target, search_space=search_space, result_set_size=1,
             depth=(2 * X.shape[1]),  qf=pysubgroup.WRAccQF())  # depth = max number of conditions
         start_time = time.process_time()
-        results = model.execute(task).to_dataframe()
+        with open(os.devnull, 'w') as file, contextlib.redirect_stdout(file):  # silence print()
+            with warnings.catch_warnings():  # thrown by Apriori (which also uses print())
+                warnings.filterwarnings('ignore', message='invalid value encountered in divide')
+                results = model.execute(task).to_dataframe()
         end_time = time.process_time()
         # Box only contains bounds for restricted features; thus, we initialize all features first:
         self._box_lbs = pd.Series([-float('inf')] * X.shape[1], index=X.columns)
