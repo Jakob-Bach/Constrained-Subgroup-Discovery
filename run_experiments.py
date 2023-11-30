@@ -12,7 +12,7 @@ import argparse
 import itertools
 import multiprocessing
 import pathlib
-from typing import Any, Dict, Optional, Sequence, Type
+from typing import Any, Dict, Optional, Sequence, Type, Union
 
 import pandas as pd
 import tqdm
@@ -23,51 +23,67 @@ import sd
 
 # Different components of the experimental design.
 N_FOLDS = 5  # cross-validation
-SUBGROUP_DISCOVERY_TYPES = [sd.MIPSubgroupDiscoverer, sd.SMTSubgroupDiscoverer]
+
+
+# Define a list of subgroup-discovery methods, each comprising a subgroup-discovery method and a
+# list of (dictionaries containing) hyperparameter combinations used to initialize the method.
+def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[str, Any]]]]:
+    sd_methods = [{'type': sd_type, 'args_list': [{}]} for sd_type in
+                  [sd.SMTSubgroupDiscoverer, sd.MIPSubgroupDiscoverer]]
+    return sd_methods
 
 
 # Define experimental tasks (for parallelization) as cross-product of datasets (from "data_dir"),
-# cross-validation folds, and subgroup-discovery methods. Only return tasks for which there is no
-# results file in "results_dir". Provide a dictionary for calling "evaluate_experimental_task()".
+# cross-validation folds, and subgroup-discovery methods (each including a method and several
+# hyperparameter settings). Only return tasks for which there is no results file in "results_dir".
+# Provide a dictionary for calling "evaluate_experimental_task()".
 def define_experimental_tasks(data_dir: pathlib.Path,
                               results_dir: pathlib.Path) -> Sequence[Dict[str, Any]]:
     experimental_tasks = []
+    sd_methods = define_sd_methods()
     dataset_names = data_handling.list_datasets(directory=data_dir)
-    for dataset_name, split_idx, subgroup_discovery_type in itertools.product(
-            dataset_names, range(N_FOLDS), SUBGROUP_DISCOVERY_TYPES):
+    for dataset_name, split_idx, sd_method in itertools.product(
+            dataset_names, range(N_FOLDS), sd_methods):
         results_file = data_handling.get_results_file_path(
             directory=results_dir, dataset_name=dataset_name, split_idx=split_idx,
-            sd_name=subgroup_discovery_type.__name__)
+            sd_name=sd_method['type'].__name__)
         if not results_file.exists():
             experimental_tasks.append(
                 {'dataset_name': dataset_name, 'data_dir': data_dir, 'results_dir': results_dir,
-                 'split_idx': split_idx, 'subgroup_discovery_type': subgroup_discovery_type})
+                 'split_idx': split_idx, 'sd_type': sd_method['type'],
+                 'sd_args_list': sd_method['args_list']})
     return experimental_tasks
 
 
 # Evaluate one subgroup-discovery method on one split of one dataset. To this end, read in the
 # dataset with the "dataset_name" from the "data_dir" and extract the "split_idx"-th split.
-# "subgroup_discovery_type" is a class representing the subgroup-discovery method.
+# "sd_type" is a class representing the subgroup-discovery method, while "sd_args_list" is a list
+# of hyperparameter combinations used to initialize the method, which will be tested sequentially.
 # Return a DataFrame with various evaluation metrics, including parametrization of the search for
 # subgroups, runtime, and prediction performance. Additionally, save this data to "results_dir".
 def evaluate_experimental_task(
         dataset_name: str, data_dir: pathlib.Path, results_dir: pathlib.Path, split_idx: int,
-        subgroup_discovery_type: Type[sd.SubgroupDiscoverer]) -> pd.DataFrame:
+        sd_type: Type[sd.SubgroupDiscoverer], sd_args_list: Sequence[Dict[str, Any]]) -> pd.DataFrame:
     X, y = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
-    subgroup_discoverer = subgroup_discovery_type()
     train_idx, test_idx = list(data_handling.split_for_pipeline(X=X, y=y, n_splits=N_FOLDS))[split_idx]
-    X_train = X.iloc[train_idx]
-    y_train = y.iloc[train_idx]
-    X_test = X.iloc[test_idx]
-    y_test = y.iloc[test_idx]
-    results = [subgroup_discoverer.evaluate(X_train=X_train, y_train=y_train,
-                                            X_test=X_test, y_test=y_test)]
+    results = []
+    for sd_args in sd_args_list:
+        subgroup_discoverer = sd_type(**sd_args)
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_test = X.iloc[test_idx]
+        y_test = y.iloc[test_idx]
+        result = subgroup_discoverer.evaluate(X_train=X_train, y_train=y_train,
+                                              X_test=X_test, y_test=y_test)
+        result['dataset_name'] = dataset_name
+        result['split_idx'] = split_idx
+        result['sd_name'] = sd_type.__name__
+        for key, value in sd_args.items():  # save all hyperparameter values
+            result[f'param.{key}'] = value
+        results.append(result)
     results = pd.DataFrame(results)
-    results['sd_name'] = subgroup_discovery_type.__name__
-    results['dataset_name'] = dataset_name
-    results['split_idx'] = split_idx
     data_handling.save_results(results=results, directory=results_dir, dataset_name=dataset_name,
-                               split_idx=split_idx, sd_name=subgroup_discovery_type.__name__)
+                               split_idx=split_idx, sd_name=sd_type.__name__)
     return results
 
 
