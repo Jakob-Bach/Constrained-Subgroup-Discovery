@@ -273,15 +273,28 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
     # process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        unique_feature_values = [X[col].unique().tolist() for col in X.columns]
+        unique_values_per_feature = [sorted(X[col].unique().tolist()) for col in X.columns]
+        n_unique_per_feature = [len(x) for x in unique_values_per_feature]
+        lb_idx_cands_per_feature = [list(range(x)) for x in n_unique_per_feature]
+        # Due to constraint LB <= UB, uniform sampling from all valid (LB, UB) combinations
+        # requires weights for LB sampling (smaller LBs have higher chance of being sampled since
+        # there are more UBs to be combined with; for n unique feature values, probabilities are
+        # proportional to n, n-1, ..., 1)
+        lb_sample_weights_per_feature = [list(range(1, x + 1))[::-1] for x in n_unique_per_feature]
         rng = random.Random(25)
         # "Optimization": Repeated random sampling
         start_time = time.process_time()
         opt_quality = float('-inf')
         for _ in range(self._n_repetitions):
-            bounds = [rng.sample(x, k=2) for x in unique_feature_values]  # still LB/UB unordered
-            self._box_lbs = pd.Series([min(x) for x in bounds], index=X.columns)
-            self._box_ubs = pd.Series([max(x) for x in bounds], index=X.columns)
+            box_lb_idxs = [rng.choices(population=lb_idx_cands, weights=lb_sample_weights)[0]
+                           for lb_idx_cands, lb_sample_weights
+                           in zip(lb_idx_cands_per_feature, lb_sample_weights_per_feature)]
+            box_ub_idxs = [rng.randint(lb_idx, n_unique - 1) for lb_idx, n_unique
+                           in zip(box_lb_idxs, n_unique_per_feature)]
+            self._box_lbs = pd.Series([unique_values[idx] for idx, unique_values in zip(
+                box_lb_idxs, unique_values_per_feature)], index=X.columns)
+            self._box_ubs = pd.Series([unique_values[idx] for idx, unique_values in zip(
+                box_ub_idxs, unique_values_per_feature)], index=X.columns)
             quality = wracc(y_true=y, y_pred=self.predict(X=X))
             if quality > opt_quality:
                 opt_quality = quality
