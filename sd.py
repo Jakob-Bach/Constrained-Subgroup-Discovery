@@ -274,27 +274,21 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         unique_values_per_feature = [sorted(X[col].unique().tolist()) for col in X.columns]
-        n_unique_per_feature = [len(x) for x in unique_values_per_feature]
-        lb_idx_cands_per_feature = [list(range(x)) for x in n_unique_per_feature]
-        # Due to constraint LB <= UB, uniform sampling from all valid (LB, UB) combinations
-        # requires weights for LB sampling (smaller LBs have higher chance of being sampled since
-        # there are more UBs to be combined with; for n unique feature values, probabilities are
-        # proportional to n, n-1, ..., 1)
-        lb_sample_weights_per_feature = [list(range(1, x + 1))[::-1] for x in n_unique_per_feature]
         rng = random.Random(25)
         # "Optimization": Repeated random sampling
         start_time = time.process_time()
         opt_quality = float('-inf')
         for _ in range(self._n_repetitions):
-            box_lb_idxs = [rng.choices(population=lb_idx_cands, weights=lb_sample_weights)[0]
-                           for lb_idx_cands, lb_sample_weights
-                           in zip(lb_idx_cands_per_feature, lb_sample_weights_per_feature)]
-            box_ub_idxs = [rng.randint(lb_idx, n_unique - 1) for lb_idx, n_unique
-                           in zip(box_lb_idxs, n_unique_per_feature)]
-            self._box_lbs = pd.Series([unique_values[idx] for idx, unique_values in zip(
-                box_lb_idxs, unique_values_per_feature)], index=X.columns)
-            self._box_ubs = pd.Series([unique_values[idx] for idx, unique_values in zip(
-                box_ub_idxs, unique_values_per_feature)], index=X.columns)
+            # Sample two values per feature and "sort" them later into LB/UB; to sample uniformly
+            # from constrained space, duplicate value from 1st sampling for 2nd sampling
+            # (give "LB == UB" pairs two options to be sampled, as for any "LB != UB" pair)
+            bounds1 = [rng.choice(unique_values) for unique_values in unique_values_per_feature]
+            bounds2 = [rng.choice(unique_values + [bounds1[j]]) for j, unique_values
+                       in enumerate(unique_values_per_feature)]
+            self._box_lbs = pd.Series([min(b1, b2) for b1, b2 in zip(bounds1, bounds2)],
+                                      index=X.columns)
+            self._box_ubs = pd.Series([max(b1, b2) for b1, b2 in zip(bounds1, bounds2)],
+                                      index=X.columns)
             quality = wracc(y_true=y, y_pred=self.predict(X=X))
             if quality > opt_quality:
                 opt_quality = quality
