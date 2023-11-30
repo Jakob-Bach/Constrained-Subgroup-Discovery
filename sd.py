@@ -9,7 +9,7 @@ import contextlib
 import os
 import random
 import time
-from typing import Any, Dict, Type
+from typing import Any, Dict, Optional, Type
 import warnings
 
 from ortools.linear_solver import pywraplp
@@ -88,6 +88,11 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
     problem.
     """
 
+    # Initialize fields. "timeout" should be indicated in seconds; if None, then no timeout.
+    def __init__(self, timeout: Optional[float] = None):
+        super().__init__()
+        self._timeout = timeout
+
     # Model and optimize subgroup discovery with Python-MIP. Return meta-data about the fitting
     # process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
@@ -105,6 +110,8 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         # Define optimizer:
         model = pywraplp.Solver.CreateSolver('SCIP')
         model.SetNumThreads(1)
+        if self._timeout is not None:
+            model.SetTimeLimit(round(self._timeout * 1000))  # int, measured in milliseconds
 
         # Define variables of the optimization problem:
         lb_vars = [model.NumVar(name=f'lb_{j}', lb=feature_minima[j], ub=feature_maxima[j])
@@ -159,15 +166,20 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         start_time = time.process_time()
         optimization_status = model.Solve()
         end_time = time.process_time()
-        # Directly extracting values of "lb_vars" and "ub_vars" can lead to numeric issues (e.g.,
-        # instance from within box might fall slightly outside, even if all numerical tolerances
-        # set to 0 in optimization), so we use actual feature values of instances in box instead;
-        # nice side-effect: box is tight around instances instead extending into margin around them
-        is_instance_in_box = [bool(var.solution_value()) for var in is_instance_in_box_vars]
-        self._box_lbs = X.iloc[is_instance_in_box].min()
-        self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
-        self._box_ubs = X.iloc[is_instance_in_box].max()
-        self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
+        if optimization_status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+            # Directly extracting values of "lb_vars" and "ub_vars" can lead to numeric issues
+            # (e.g., instance from within box might fall slightly outside, even if all numerical
+            # tolerances were set to 0 in optimization), so we use actual feature values of
+            # instances in box instead; nice side-effect: box is tight around instances instead of
+            # extending into margin around them
+            is_instance_in_box = [bool(var.solution_value()) for var in is_instance_in_box_vars]
+            self._box_lbs = X.iloc[is_instance_in_box].min()
+            self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
+            self._box_ubs = X.iloc[is_instance_in_box].max()
+            self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
+        else:
+            self._box_lbs = pd.Series([float('-inf')] * X.shape[1], index=X.columns)
+            self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
         return {'optimization_status': optimization_status,
                 'optimization_time': end_time - start_time}
 
@@ -178,6 +190,11 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     White-box formulation of subgroup discovery as a Satisfiability Modulo Theories (SMT)
     optimization problem.
     """
+
+    # Initialize fields. "timeout" should be indicated in seconds; if None, then no timeout.
+    def __init__(self, timeout: Optional[float] = None):
+        super().__init__()
+        self._timeout = timeout
 
     # Model and optimize subgroup discovery with Z3. Return meta-data about the fitting process
     # (see superclass for more details).
@@ -204,6 +221,10 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
 
         # Define optimizer and objective (WRAcc):
         optimizer = z3.Optimize()
+        if self._timeout is not None:
+            # engine: see https://stackoverflow.com/questions/35203432/z3-minimization-and-timeout
+            optimizer.set('maxsat_engine', 'wmax')
+            optimizer.set('timeout', round(self._timeout * 1000))  # int, measured in milliseconds
         optimizer.maximize(n_pos_instances_in_box / n_instances -
                            n_instances_in_box * n_pos_instances / (n_instances ** 2))
 
@@ -223,11 +244,14 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         optimization_status = optimizer.check()
         end_time = time.process_time()
         # To avoid potential numeric issues when extracting values of real variables, use actual
-        # feature values of instances in box as bounds (also makes box tight around instances)
+        # feature values of instances in box as bounds (also makes box tight around instances).
+        # If bounds do not exclude any instances (LB == min or UB == max) or if no valid model was
+        # found (variables are None -> bool values are False -> no instances in box -> min()/max()
+        # of box instances' feature values are NaN), use -/+ inf as bounds
         is_instance_in_box = [bool(optimizer.model()[var]) for var in is_instance_in_box_vars]
-        self._box_lbs = X.iloc[is_instance_in_box].min()
+        self._box_lbs = X.iloc[is_instance_in_box].min().fillna(float('-inf'))
         self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
-        self._box_ubs = X.iloc[is_instance_in_box].max()
+        self._box_ubs = X.iloc[is_instance_in_box].max().fillna(float('inf'))
         self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
         return {'optimization_status': str(optimization_status),
                 'optimization_time': end_time - start_time}
