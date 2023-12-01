@@ -32,9 +32,6 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     results = data_handling.load_results(directory=results_dir)
 
-    # Rename some values:
-    results['sd_name'] = results['sd_name'].str.removesuffix('SubgroupDiscoverer')
-
     # Define column list for evaluation:
     evaluation_metrics = ['optimization_time', 'fitting_time', 'train_wracc', 'test_wracc']
 

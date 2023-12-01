@@ -15,6 +15,9 @@ import pathlib
 from typing import Any, Dict, Optional, Sequence, Type, Union
 
 import pandas as pd
+import prelim.sd.BI
+import prelim.sd.PRIM
+import pysubgroup
 import tqdm
 
 import data_handling
@@ -28,9 +31,18 @@ N_FOLDS = 5  # cross-validation
 # Define a list of subgroup-discovery methods, each comprising a subgroup-discovery method and a
 # list of (dictionaries containing) hyperparameter combinations used to initialize the method.
 def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[str, Any]]]]:
-    sd_methods = [{'type': sd_type, 'args_list': [{}]} for sd_type in
-                  [sd.SMTSubgroupDiscoverer, sd.MIPSubgroupDiscoverer]]
-    return sd_methods
+    return [
+        {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer, 'sd_args_list': [{}]},
+        {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': [{}]},
+        {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': [{}]},
+        {'sd_name': 'PRIM-PRIM', 'sd_type': sd.PrimPRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
+        {'sd_name': 'PRELIM-PRIM', 'sd_type': sd.PrelimSubgroupDiscoverer,
+         'sd_args_list': [{'model_type': prelim.sd.PRIM.PRIM}]},
+        {'sd_name': 'BI', 'sd_type': sd.PrelimSubgroupDiscoverer,
+         'sd_args_list': [{'model_type': prelim.sd.BI.BI}]},
+        {'sd_name': 'Beam', 'sd_type': sd.PysubgroupSubgroupDiscoverer,
+         'sd_args_list': [{'model_type': pysubgroup.BeamSearch}]}
+    ]
 
 
 # Define experimental tasks (for parallelization) as cross-product of datasets (from "data_dir"),
@@ -40,30 +52,30 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
 def define_experimental_tasks(data_dir: pathlib.Path,
                               results_dir: pathlib.Path) -> Sequence[Dict[str, Any]]:
     experimental_tasks = []
-    sd_methods = define_sd_methods()
+    sd_method_descriptions = define_sd_methods()
     dataset_names = data_handling.list_datasets(directory=data_dir)
-    for dataset_name, split_idx, sd_method in itertools.product(
-            dataset_names, range(N_FOLDS), sd_methods):
+    for dataset_name, split_idx, sd_method_description in itertools.product(
+            dataset_names, range(N_FOLDS), sd_method_descriptions):
         results_file = data_handling.get_results_file_path(
             directory=results_dir, dataset_name=dataset_name, split_idx=split_idx,
-            sd_name=sd_method['type'].__name__)
+            sd_name=sd_method_description['sd_name'])
         if not results_file.exists():
             experimental_tasks.append(
                 {'dataset_name': dataset_name, 'data_dir': data_dir, 'results_dir': results_dir,
-                 'split_idx': split_idx, 'sd_type': sd_method['type'],
-                 'sd_args_list': sd_method['args_list']})
+                 'split_idx': split_idx, **sd_method_description})
     return experimental_tasks
 
 
 # Evaluate one subgroup-discovery method on one split of one dataset. To this end, read in the
 # dataset with the "dataset_name" from the "data_dir" and extract the "split_idx"-th split.
-# "sd_type" is a class representing the subgroup-discovery method, while "sd_args_list" is a list
-# of hyperparameter combinations used to initialize the method, which will be tested sequentially.
+# "sd_type" is a class representing the subgroup-discovery method, while "sd_name" is an arbitrary
+# (user-defined) name for the method and "sd_args_list" is a list of hyperparameter combinations
+# used to initialize the method, which will be tested sequentially.
 # Return a DataFrame with various evaluation metrics, including parametrization of the search for
 # subgroups, runtime, and prediction performance. Additionally, save this data to "results_dir".
 def evaluate_experimental_task(
         dataset_name: str, data_dir: pathlib.Path, results_dir: pathlib.Path, split_idx: int,
-        sd_type: Type[sd.SubgroupDiscoverer], sd_args_list: Sequence[Dict[str, Any]]) -> pd.DataFrame:
+        sd_name: str, sd_type: Type[sd.SubgroupDiscoverer], sd_args_list: Sequence[Dict[str, Any]]) -> pd.DataFrame:
     X, y = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
     train_idx, test_idx = list(data_handling.split_for_pipeline(X=X, y=y, n_splits=N_FOLDS))[split_idx]
     results = []
@@ -77,13 +89,13 @@ def evaluate_experimental_task(
                                               X_test=X_test, y_test=y_test)
         result['dataset_name'] = dataset_name
         result['split_idx'] = split_idx
-        result['sd_name'] = sd_type.__name__
+        result['sd_name'] = sd_name
         for key, value in sd_args.items():  # save all hyperparameter values
             result[f'param.{key}'] = value
         results.append(result)
     results = pd.DataFrame(results)
     data_handling.save_results(results=results, directory=results_dir, dataset_name=dataset_name,
-                               split_idx=split_idx, sd_name=sd_type.__name__)
+                               split_idx=split_idx, sd_name=sd_name)
     return results
 
 
