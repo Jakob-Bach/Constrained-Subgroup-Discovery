@@ -26,13 +26,17 @@ import sd
 
 # Different components of the experimental design.
 N_FOLDS = 5  # cross-validation
+SOLVER_TIMEOUTS = [1, 10, 60, 600, 3600]  # in seconds
 
 
 # Define a list of subgroup-discovery methods, each comprising a subgroup-discovery method and a
 # list of (dictionaries containing) hyperparameter combinations used to initialize the method.
 def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[str, Any]]]]:
     return [
-        {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer, 'sd_args_list': [{}]},
+        {'sd_name': 'MIP', 'sd_type': sd.MIPSubgroupDiscoverer,
+         'sd_args_list': [{'timeout': timeout} for timeout in SOLVER_TIMEOUTS]},
+        {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer,
+         'sd_args_list': [{'timeout': timeout} for timeout in SOLVER_TIMEOUTS]},
         {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'PRIM-PRIM', 'sd_type': sd.PrimPRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
