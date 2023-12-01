@@ -9,7 +9,7 @@ import contextlib
 import os
 import random
 import time
-from typing import Any, Dict, Optional, Type
+from typing import Dict, Optional, Type, Union
 import warnings
 
 from ortools.linear_solver import pywraplp
@@ -355,17 +355,16 @@ class PrimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
                 'optimization_time': end_time - start_time}
 
 
-class PrelimSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
+class PrelimSubgroupDiscoverer(SubgroupDiscoverer):
     """Subgroup-discovery algorithm from the package "prelim"
 
-    Superclass wrapping algorithms from the package "prelim". Subclasses need to set a concrete
+    Superclass wrapping algorithms from the package "prelim". Users need to set a concrete
     "model_type" (= algorithm) in the initializer.
     """
 
-    # Sets field for internal model type. Cannot really be any type, but the classes in "prelim"
-    # don't have a common superclass. The "model" needs to have a fit() method that returns a box
-    # with a special format.
-    def __init__(self, model_type: Type[Any]):
+    # Sets field for internal model type. The subgroup-dicovery classes in "prelim" don't have a
+    # common superclass but still a uniform interface.
+    def __init__(self, model_type: Type[Union[prelim.sd.BI.BI, prelim.sd.PRIM.PRIM]]):
         super().__init__()
         self._model_type = model_type
 
@@ -384,44 +383,20 @@ class PrelimSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
                 'optimization_time': end_time - start_time}
 
 
-class PrelimPRIMSubgroupDiscoverer(PrelimSubgroupDiscoverer):
-    """PRIM algorithm from the package "prelim"
-
-    Heuristic search procedure with a peeling phase (iteratively decreasing the range of the
-    subgroup) and a pasting phase (iteratively increasing the range of the subgroup).
-    In this version of the algorithm, only the peeling phase is implemented.
-
-    Literature: Friedman & Fisher (1999): "Bump hunting in high-dimensional data"
-    """
-
-    def __init__(self):
-        super().__init__(model_type=prelim.sd.PRIM.PRIM)
-
-
-class BISubgroupDiscoverer(PrelimSubgroupDiscoverer):
-    """BI algorithm from the package "prelim"
-
-    Heuristic search procedure using beam search.
-
-    Literature: Mampaey et a. (2012): "Efficient Algorithms for Finding Richer Subgroup
-    Descriptions in Numeric and Nominal Data"
-    """
-
-    def __init__(self):
-        super().__init__(model_type=prelim.sd.BI.BI)
-
-
-class PysubgroupSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
+class PysubgroupSubgroupDiscoverer(SubgroupDiscoverer):
     """Subgroup-discovery algorithm from the package "pysubgroup"
 
-    Superclass wrapping algorithms from the package "pysubgroup". Subclasses need to set a concrete
+    Superclass wrapping algorithms from the package "pysubgroup". Users need to set a concrete
     "model_type" (= algorithm) in the initializer.
     """
 
-    # Sets field for internal model type. Cannot really be any type, but the classes in
-    # "pysubgroup" don't have a common superclass, though they share a common interface
-    # (particularly an execute() method).
-    def __init__(self, model_type: Type[Any]):
+    # Sets field for internal model type. The subgroup-dicovery classes in "pysubgroup" don't have
+    # a common superclass but still a uniform interface. Five of them don't crash and can produce
+    # subgroups in our sense (arbitrarily sized numeric intervals instead of value-/bin-equality
+    # conditions), though only "BeamSearch" has a reasonable runtime.
+    def __init__(self, model_type: Type[Union[pysubgroup.Apriori, pysubgroup.BeamSearch,
+                                              pysubgroup.GpGrowth, pysubgroup.SimpleDFS,
+                                              pysubgroup.SimpleSearch]]):
         super().__init__()
         self._model_type = model_type
 
@@ -467,45 +442,3 @@ class PysubgroupSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
                 self._box_ubs[feature] = max(X[feature][X[feature] < self._box_ubs[feature]])
         return {'optimization_status': None,
                 'optimization_time': end_time - start_time}
-
-
-class AprioriSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
-    """Apriori algorithm from the package "pysubgroup"
-
-    Exact search procedure that iteratively forms subgroups by adding (feature-value)
-    conditions to the subgroup and uses quality-based pruning.
-    """
-
-    def __init__(self):
-        super().__init__(model_type=pysubgroup.Apriori)
-
-
-class BeamSearchSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
-    """Beam-search algorithm from the package "pysubgroup"
-
-    Heuristic search procedure that iteratively forms subgroups by adding (feature-value)
-    conditions to the subgroup.
-    """
-
-    def __init__(self):
-        super().__init__(model_type=pysubgroup.BeamSearch)
-
-
-class GpGrowthSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
-    """GP-Growth algorithm from the package "pysubgroup"
-
-    Exact search procedure based on frequent pattern growth.
-    """
-
-    def __init__(self):
-        super().__init__(model_type=pysubgroup.GpGrowth)
-
-
-class DFSSubgroupDiscoverer(PysubgroupSubgroupDiscoverer):
-    """Depth-first-search algorithm from the package "pysubgroup"
-
-    Exact search procedure that recursively adds (feature-value) conditions to the subgroup.
-    """
-
-    def __init__(self):
-        super().__init__(model_type=pysubgroup.SimpleDFS)
