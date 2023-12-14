@@ -35,25 +35,30 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     # Define column list for evaluation:
     evaluation_metrics = ['optimization_time', 'fitting_time', 'train_wracc', 'test_wracc']
 
-    print('\nHow are the optimization statuses distributed?')
-    print(results.groupby('sd_name')['optimization_status'].value_counts())
+    print('\nHow are the optimization statuses distributed over timeouts?')
+    print(results.groupby(['sd_name', 'param.timeout'])['optimization_status'].value_counts())
 
-    print('\nHow are the values of evaluation metrics distributed?')
-    print(results.groupby('sd_name')[evaluation_metrics].describe().transpose().round(2))
+    print('\nHow are the mean values of evaluation metrics distributed (for the highest timeout)?')
+    print(results[results['param.timeout'].isin([float('nan'), 3600])].groupby('sd_name')[
+        evaluation_metrics].mean().round(2))
+
+    print('\nHow is the mean value of evaluation metrics distributed over timeouts?')
+    print(results.groupby(['sd_name', 'param.timeout'])[evaluation_metrics].mean().round(2))
 
     print('\nHow is the difference "train - test" in WRAcc distributed?')
-    print_results = results[['sd_name', 'dataset_name', 'split_idx']].copy()
+    print_results = results[['sd_name', 'dataset_name', 'split_idx', 'param.timeout']].copy()
     print_results['diff'] = results['train_wracc'] - results['test_wracc']
     print(print_results.groupby('sd_name')['diff'].describe().transpose().round(2))
+    print(print_results.groupby(['sd_name', 'param.timeout'])['diff'].describe().round(3))
 
     print('\nHow is the difference "entire fitting - only optimization" in runtime distributed?')
-    print_results = results[['sd_name', 'dataset_name', 'split_idx']].copy()
+    print_results = results[['sd_name']].copy()
     print_results['diff'] = results['fitting_time'] - results['optimization_time']
     print(print_results.groupby('sd_name')['diff'].describe().transpose().round(2))
 
     print('\nHow is the difference "MIP - SMT" in the values of evaluation metrics distributed?')
-    print_results = results.pivot(index=['dataset_name', 'split_idx'], columns='sd_name',
-                                  values=evaluation_metrics).reset_index()
+    print_results = results.pivot(index=['dataset_name', 'split_idx', 'param.timeout'],
+                                  columns='sd_name', values=evaluation_metrics).reset_index()
     for metric in evaluation_metrics:
         print_results[(metric, 'diff')] = (print_results[(metric, 'MIP')] -
                                            print_results[(metric, 'SMT')])
@@ -61,12 +66,16 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results.droplevel(level='sd_name', axis='columns')
     print(print_results[evaluation_metrics].describe().round(2))
 
-    print('\nHow is the runtime Spearman-correlated to dataset size?')
+    print('\nHow is the runtime Spearman-correlated to dataset size (for the highest timeout)?')
     dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
     print_results = dataset_overview.rename(columns={'n_instances': 'm', 'n_features': 'n'})
     print_results['n*m'] = print_results['n'] * print_results['m']
+    print_results['sum_unique_values'] = print_results['dataset'].apply(
+        lambda dataset_name: data_handling.load_dataset(
+            dataset_name=dataset_name, directory=data_dir)[0].nunique().sum())  # 0 = "X", 1 = "y"
     print_results = print_results.merge(
-        results[['dataset_name', 'sd_name', 'optimization_time', 'fitting_time']].rename(
+        results.loc[results['param.timeout'].isin([float('nan'), 3600]),
+                    ['dataset_name', 'sd_name', 'optimization_time', 'fitting_time']].rename(
             columns={'dataset_name': 'dataset'})).drop(columns='dataset')
     print(print_results.groupby('sd_name').corr(method='spearman').round(2))
 
