@@ -89,8 +89,10 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
     """
 
     # Initialize fields. "timeout" should be indicated in seconds; if None, then no timeout.
-    def __init__(self, timeout: Optional[float] = None):
+    # "k" is the maximum number of features used in the subgroup description.
+    def __init__(self, k: Optional[int] = None, timeout: Optional[float] = None):
         super().__init__()
+        self._k = k
         self._timeout = timeout
 
     # Model and optimize subgroup discovery with Python-MIP. Return meta-data about the fitting
@@ -162,6 +164,22 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         for j in range(n_features):
             model.Add(lb_vars[j] <= ub_vars[j])
 
+        # (3) Limit number of features used in the box (i.e., where bounds exclude instances)
+        if self._k is not None:
+            is_feature_used_vars = [model.BoolVar(name=f'f_{j}') for j in range(n_features)]
+            for j in range(n_features):
+                # There is any Instance i where Feature j's value not in box -> Feature j used
+                for i in range(n_instances):
+                    model.Add(1 - is_value_in_box_lb_vars[i][j] <= is_feature_used_vars[j])
+                    model.Add(1 - is_value_in_box_ub_vars[i][j] <= is_feature_used_vars[j])
+                # Feature j used -> there is any Instance i where Feature j's value not in box
+                model.Add(
+                    is_feature_used_vars[j] <=
+                    model.Sum(1 - is_value_in_box_lb_vars[i][j] for i in range(n_instances)) +
+                    model.Sum(1 - is_value_in_box_ub_vars[i][j] for i in range(n_instances))
+                )
+            model.Add(model.Sum(is_feature_used_vars) <= self._k)
+
         # Optimize and store/return results:
         start_time = time.process_time()
         optimization_status = model.Solve()
@@ -192,8 +210,10 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     """
 
     # Initialize fields. "timeout" should be indicated in seconds; if None, then no timeout.
-    def __init__(self, timeout: Optional[float] = None):
+    # "k" is the maximum number of features used in the subgroup description.
+    def __init__(self, k: Optional[int] = None, timeout: Optional[float] = None):
         super().__init__()
+        self._k = k
         self._timeout = timeout
 
     # Model and optimize subgroup discovery with Z3. Return meta-data about the fitting process
@@ -238,6 +258,12 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         # (2) Relationship between lower and upper bound for each feature
         for j in range(n_features):
             optimizer.add(lb_vars[j] <= ub_vars[j])
+
+        # (3) Limit number of features used in the box (i.e., where bounds exclude instances)
+        if self._k is not None:
+            optimizer.add(z3.Sum([z3.If(z3.Or(lb_vars[j] > feature_minima[j],
+                                              ub_vars[j] < feature_maxima[j]), 1, 0)
+                                  for j in range(n_features)]) <= self._k)
 
         # Optimize and store/return results:
         start_time = time.process_time()
