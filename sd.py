@@ -405,16 +405,23 @@ class PrelimSubgroupDiscoverer(SubgroupDiscoverer):
     """
 
     # Sets field for internal model type. The subgroup-dicovery classes in "prelim" don't have a
-    # common superclass but still a uniform interface.
-    def __init__(self, model_type: Type[Union[prelim.sd.BI.BI, prelim.sd.PRIM.PRIM]]):
+    # common superclass but still a uniform interface. "k" is the maximum number of features used
+    # in the subgroup description.
+    def __init__(self, model_type: Type[Union[prelim.sd.BI.BI, prelim.sd.PRIM.PRIM]],
+                 k: Optional[int] = None):
         super().__init__()
         self._model_type = model_type
+        self._k = k
 
     # Run the algorithm from "prelim" with its default hyperparameters. Return meta-data about the
     # fitting process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        model = self._model_type()
+        if self._model_type == prelim.sd.BI.BI:  # has built-in feature-cardinality support
+            k = X.shape[1] if self._k is None else self._k
+            model = self._model_type(depth=k)
+        else:
+            model = self._model_type()
         start_time = time.process_time()
         model.fit(X=X, y=y)
         end_time = time.process_time()
