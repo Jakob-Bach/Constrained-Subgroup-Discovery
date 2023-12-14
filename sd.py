@@ -291,6 +291,11 @@ class MORBSubgroupDiscoverer(SubgroupDiscoverer):
     optimal solution if a box exists that contains all positive and no negative instances.
     """
 
+    # Initialize fields. "k" is the maximum number of features used in the subgroup description.
+    def __init__(self, k: Optional[int] = None):
+        super().__init__()
+        self._k = k
+
     # Choose the minimal box that still has optimal recall (= 1). Return meta-data about the
     # fitting process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
@@ -299,6 +304,13 @@ class MORBSubgroupDiscoverer(SubgroupDiscoverer):
         start_time = time.process_time()
         self._box_lbs = X[y == 1].min()
         self._box_ubs = X[y == 1].max()
+        if (self._k is not None) and (self._k < X.shape[1]):
+            # Count the number of false positives (negative instances in box) in each feature's
+            # interval and reset the box for all features not in the bottom-k regardings FPs
+            n_feature_fps = ((X[y == 0] >= self._box_lbs) & (X[y == 0] <= self._box_ubs)).sum()
+            exclude_features = n_feature_fps.sort_values().index[self._k:]  # n-k highest
+            self._box_lbs[exclude_features] = float('-inf')
+            self._box_ubs[exclude_features] = float('inf')
         end_time = time.process_time()
         # Post-processing (as for optimizer-based solutions): if box extends to the limit of
         # feature values in the given data, treat this value as unbounded
