@@ -326,9 +326,10 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
     Choose the bounds repeatedly uniformly random from the unique values of each feature.
     """
 
-    # Initialize fields used in the search.
-    def __init__(self, n_repetitions: int = 1000):
+    # Initialize fields. "k" is the maximum number of features used in the subgroup description.
+    def __init__(self, k: Optional[int] = None, n_repetitions: int = 1000):
         super().__init__()
+        self._k = k
         self._n_repetitions = n_repetitions
 
     # Repeatedly sample random boxes and pick the best of them. Return meta-data about the fitting
@@ -341,16 +342,19 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
         start_time = time.process_time()
         opt_quality = float('-inf')
         for _ in range(self._n_repetitions):
+            box_feature_idx = range(X.shape[1])  # default: all features may be restricted in box
+            if (self._k is not None) and (self._k < X.shape[1]):
+                box_feature_idx = rng.sample(box_feature_idx, k=self._k)
             # Sample two values per feature and "sort" them later into LB/UB; to sample uniformly
             # from constrained space, duplicate value from 1st sampling for 2nd sampling
             # (give "LB == UB" pairs two options to be sampled, as for any "LB != UB" pair)
-            bounds1 = [rng.choice(unique_values) for unique_values in unique_values_per_feature]
-            bounds2 = [rng.choice(unique_values + [bounds1[j]]) for j, unique_values
-                       in enumerate(unique_values_per_feature)]
-            self._box_lbs = pd.Series([min(b1, b2) for b1, b2 in zip(bounds1, bounds2)],
-                                      index=X.columns)
-            self._box_ubs = pd.Series([max(b1, b2) for b1, b2 in zip(bounds1, bounds2)],
-                                      index=X.columns)
+            bounds1 = [rng.choice(unique_values_per_feature[j]) for j in box_feature_idx]
+            bounds2 = [rng.choice(unique_values_per_feature[j] + [bounds1[box_j]])
+                       for box_j, j in enumerate(box_feature_idx)]
+            self._box_lbs = pd.Series([float('-inf')] * X.shape[1], index=X.columns)
+            self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
+            self._box_lbs.iloc[box_feature_idx] = [min(b1, b2) for b1, b2 in zip(bounds1, bounds2)]
+            self._box_ubs.iloc[box_feature_idx] = [max(b1, b2) for b1, b2 in zip(bounds1, bounds2)]
             quality = wracc(y_true=y, y_pred=self.predict(X=X))
             if quality > opt_quality:
                 opt_quality = quality
