@@ -15,8 +15,6 @@ import pathlib
 from typing import Any, Dict, Optional, Sequence, Type, Union
 
 import pandas as pd
-import prelim.sd.BI
-import prelim.sd.PRIM
 import pysubgroup
 import tqdm
 
@@ -40,10 +38,8 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
         {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'PRIM-PRIM', 'sd_type': sd.PrimPRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
-        {'sd_name': 'PRELIM-PRIM', 'sd_type': sd.PrelimSubgroupDiscoverer,
-         'sd_args_list': [{'model_type': prelim.sd.PRIM.PRIM}]},
-        {'sd_name': 'BI', 'sd_type': sd.PrelimSubgroupDiscoverer,
-         'sd_args_list': [{'model_type': prelim.sd.BI.BI}]},
+        {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
+        {'sd_name': 'BI', 'sd_type': sd.BISubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'Beam', 'sd_type': sd.PysubgroupSubgroupDiscoverer,
          'sd_args_list': [{'model_type': pysubgroup.BeamSearch}]}
     ]

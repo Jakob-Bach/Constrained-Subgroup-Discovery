@@ -16,7 +16,6 @@ import numpy as np
 from ortools.linear_solver import pywraplp
 import pandas as pd
 import prelim.sd.BI
-import prelim.sd.PRIM
 import pysubgroup
 import prim
 import z3
@@ -39,10 +38,10 @@ def wracc(y_true: pd.Series, y_pred: pd.Series) -> float:
 # using numpy arrays instead of pandas Series by roughly an order of magnitude (not sure why).
 # This fast method should be preferred if called often as a subroutine.
 def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    n_true_pos = (y_true & y_pred).sum()
+    n_true_pos = np.count_nonzero(y_true & y_pred)
     n_instances = len(y_true)
-    n_actual_pos = y_true.sum()
-    n_pred_pos = y_pred.sum()
+    n_actual_pos = np.count_nonzero(y_true)
+    n_pred_pos = np.count_nonzero(y_pred)
     return n_true_pos / n_instances - n_pred_pos * n_actual_pos / (n_instances ** 2)
 
 
@@ -420,31 +419,31 @@ class PrimPRIMSubgroupDiscoverer(SubgroupDiscoverer):
                 'optimization_time': end_time - start_time}
 
 
-class PrelimSubgroupDiscoverer(SubgroupDiscoverer):
-    """Subgroup-discovery algorithm from the package "prelim"
+class BISubgroupDiscoverer(SubgroupDiscoverer):
+    """Best-interval algorithm from the package "prelim"
 
-    Superclass wrapping algorithms from the package "prelim". Users need to set a concrete
-    "model_type" (= algorithm) in the initializer.
+    Heuristic search procedure using beam search.
+
+    This wrapper class renames the parameter for the number of features used and allows it to be
+    None (choosing it based on data dimensionality).
+
+    Literature:
+    - Mampaey et a. (2012): "Efficient Algorithms for Finding Richer Subgroup Descriptions in
+      Numeric and Nominal Data"
+    - Arzamasov et al. (2021): "REDS: Rule Extraction for Discovering Scenarios"
     """
 
-    # Sets field for internal model type. The subgroup-dicovery classes in "prelim" don't have a
-    # common superclass but still a uniform interface. "k" is the maximum number of features used
-    # in the subgroup description.
-    def __init__(self, model_type: Type[Union[prelim.sd.BI.BI, prelim.sd.PRIM.PRIM]],
-                 k: Optional[int] = None):
+    # Initialize fields. "k" is the maximum number of features used in the subgroup description.
+    def __init__(self, k: Optional[int] = None):
         super().__init__()
-        self._model_type = model_type
         self._k = k
 
-    # Run the algorithm from "prelim" with its default hyperparameters. Return meta-data about the
-    # fitting process (see superclass for more details).
+    # Run the algorithm from "prelim" with its default hyperparameters + the desired feature
+    # cardinality. Return meta-data about the fitting process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        if self._model_type == prelim.sd.BI.BI:  # has built-in feature-cardinality support
-            k = X.shape[1] if self._k is None else self._k
-            model = self._model_type(depth=k)
-        else:
-            model = self._model_type()
+        k = X.shape[1] if self._k is None else self._k
+        model = prelim.sd.BI.BI(depth=k)  # parameter has a different name
         start_time = time.process_time()
         model.fit(X=X, y=y)
         end_time = time.process_time()
@@ -453,6 +452,125 @@ class PrelimSubgroupDiscoverer(SubgroupDiscoverer):
         self._box_ubs = pd.Series(model.box_[1], index=X.columns)
         return {'optimization_status': None,
                 'optimization_time': end_time - start_time}
+
+
+class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
+    """PRIM algorithm
+
+    Heuristic search procedure with a peeling phase (iteratively decreasing the range of the
+    subgroup) and a pasting phase (iteratively increasing the range of the subgroup).
+    In this version of the algorithm, only the peeling phase is implemented.
+    Similar to the PRIM implementation in prelim.sd.PRIM, but has a different termination condition
+    (min support instead of fixed iteration count combined with early-termination criterion),
+    handles bounds differently (always produces strict bounds first but converts to <=/>= later)
+    and supports a cardinality constraint on the number of restricted features.
+
+    Literature:
+    - Friedman & Fisher (1999): "Bump hunting in high-dimensional data"
+    - https://github.com/Arzik1987/prelim/blob/main/src/prelim/sd/PRIM.py
+    """
+
+    # Initialize fields.
+    # - "k" is the maximum number of features used in the subgroup description.
+    # - "alpha" is the fraction of instances peeled off per iteration.
+    # - "min_support" is the minimum fraction of instances in the box to continue peeling.
+    def __init__(self, k: Optional[int] = None, alpha: float = 0.05, min_support: float = 0):
+        super().__init__()
+        self._k = k
+        self._alpha = alpha
+        self._min_support = min_support
+
+    # Iteratively peel off (at least) a fraction "_alpha" of the instances by moving one bound of
+    # one feature (choose best WRAcc); stop if empty box produced or "_min_support" violated.
+    # Return meta-data about the fitting process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        X_np = X.values  # working directly on numpy arrays rather than pandas sometimes way faster
+        y_np = y.values
+        # Optimization: Iterative box updates
+        start_time = time.process_time()
+        self._box_lbs = X_np.min(axis=0)
+        self._box_ubs = X_np.max(axis=0)
+        y_pred = self.predict_np(X=X_np)
+        opt_quality = wracc_np(y_true=y_np, y_pred=y_pred)
+        opt_box_lbs = self._box_lbs.copy()  # fields will be changed for predictions, so copy
+        opt_box_ubs = self._box_ubs.copy()
+        has_peeled = True
+        # Peeling continues as long as box has changed and contains certain number of instances
+        while has_peeled and (np.count_nonzero(y_pred) / len(y_np) > self._min_support):
+            # Note that peeling also changes "self._box_lbs" and "self._box_ubs"
+            has_peeled = self._peel_one_step(X=X_np, y=y_np)
+            y_pred = self.predict_np(X=X_np)
+            quality = wracc_np(y_true=y_np, y_pred=y_pred)
+            if quality > opt_quality:
+                opt_quality = quality
+                opt_box_lbs = self._box_lbs.copy()
+                opt_box_ubs = self._box_ubs.copy()
+        end_time = time.process_time()
+        # Post-processing (as for optimizer-based solutions): if box extends to the limit of
+        # feature values in the given data, treat this value as unbounded
+        self._box_lbs = pd.Series(opt_box_lbs, index=X.columns)
+        self._box_ubs = pd.Series(opt_box_ubs, index=X.columns)
+        self._box_lbs[self._box_lbs == X.min()] = float('-inf')
+        self._box_ubs[self._box_ubs == X.max()] = float('inf')
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+    # For each feature, check the "alpha" / "1 -  alpha" quantile for instances in the box as
+    # potential new lower / upper bound. Choose the feature and bound with the best objective
+    # (WRAcc) value. Return if peeling was successful (fails if only an emtpy box would be
+    # created, e.g., if features only contain one value each or empty box is optimal).
+    def _peel_one_step(self, X: np.ndarray, y: np.ndarray) -> bool:
+        is_instance_in_old_box = self.predict_np(X=X)
+        opt_quality = float('-inf')  # select one peel even if it's not better than previous box
+        opt_feature_idx = None
+        opt_bound = None
+        opt_is_ub = None  # either LB or UB updated
+        used_feature_idxs = np.where(((X < self._box_lbs) | (X > self._box_ubs)).any(axis=0))[0]
+        if (self._k is not None) and (len(used_feature_idxs) == self._k):
+            candidate_feature_idxs = used_feature_idxs
+        elif (self._k is not None) and (len(used_feature_idxs) > self._k):
+            raise RuntimeError('The algorithm used more features than allowed.')
+        else:
+            candidate_feature_idxs = range(X.shape[1])
+        # Exclude features only having one unique value (i.e., all feature values equal first one):
+        candidate_feature_idxs = [j for j in candidate_feature_idxs if (X[:, j] != X[0, j]).any()]
+        if len(candidate_feature_idxs) == 0:  # no peeling possible
+            return False  # box unchanged
+        for j in candidate_feature_idxs:
+            # Check a new lower bound (if quantile between two feature values, choose middle):
+            bound = np.quantile(X[is_instance_in_old_box, j], q=self._alpha, method='midpoint')
+            # Only checking the new bound and combining with prior information (on whether instance
+            # in box) is faster than updating self._box_lbs and using predict_np();
+            # also, using strict equality (as in original paper) here, will be made >= later
+            y_pred = is_instance_in_old_box & (X[:, j] > bound)
+            quality = wracc_np(y_true=y, y_pred=y_pred)
+            if quality > opt_quality:
+                opt_quality = quality
+                opt_feature_idx = j
+                opt_bound = bound
+                opt_is_ub = False
+            # Check a new upper bound (if quantile between two feature values, choose middle):
+            bound = np.quantile(X[is_instance_in_old_box, j], q=1-self._alpha, method='midpoint')
+            y_pred = is_instance_in_old_box & (X[:, j] < bound)
+            quality = wracc_np(y_true=y, y_pred=y_pred)
+            if quality > opt_quality:
+                opt_quality = quality
+                opt_feature_idx = j
+                opt_bound = bound
+                opt_is_ub = True
+        if opt_is_ub:
+            # Convert ">", potentially for a midpoint value, to ">=" for an actual feature value:
+            in_box_values = X[is_instance_in_old_box & (X[:, opt_feature_idx] < opt_bound),
+                              opt_feature_idx]
+            if len(in_box_values) > 0:
+                self._box_ubs[opt_feature_idx] = float(in_box_values.max())
+        else:
+            in_box_values = X[is_instance_in_old_box & (X[:, opt_feature_idx] > opt_bound),
+                              opt_feature_idx]
+            if len(in_box_values) > 0:
+                self._box_lbs[opt_feature_idx] = float(in_box_values.min())
+        return len(in_box_values) > 0  # New, non-empty box produced
 
 
 class PysubgroupSubgroupDiscoverer(SubgroupDiscoverer):
