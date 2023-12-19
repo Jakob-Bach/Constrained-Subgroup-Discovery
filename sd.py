@@ -12,6 +12,7 @@ import time
 from typing import Dict, Optional, Type, Union
 import warnings
 
+import numpy as np
 from ortools.linear_solver import pywraplp
 import pandas as pd
 import prelim.sd.BI
@@ -26,6 +27,18 @@ def wracc(y_true: pd.Series, y_pred: pd.Series) -> float:
     assert len(y_true) == len(y_pred), "Prediction and ground truth need to have same length."
     assert y_true.isin((0, 1, False, True)).all(), "Each ground-truth label needs to be binary."
     assert y_pred.isin((0, 1, False, True)).all(), "Each predicted label needs to be binary."
+    n_true_pos = (y_true & y_pred).sum()
+    n_instances = len(y_true)
+    n_actual_pos = y_true.sum()
+    n_pred_pos = y_pred.sum()
+    return n_true_pos / n_instances - n_pred_pos * n_actual_pos / (n_instances ** 2)
+
+
+# Same functionality as wracc(), but faster and intended for binary (bool or int) numpy arrays.
+# Leaving out assertions cuts the execution time by roughly 50 % compared to the "slow" method,
+# using numpy arrays instead of pandas Series by roughly an order of magnitude (not sure why).
+# This fast method should be preferred if called often as a subroutine.
+def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     n_true_pos = (y_true & y_pred).sum()
     n_instances = len(y_true)
     n_actual_pos = y_true.sum()
@@ -67,6 +80,14 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
     def predict(self, X: pd.DataFrame) -> pd.Series:
         return pd.Series((X.ge(self.get_box_lbs()) & X.le(self.get_box_ubs())).all(
             axis='columns').astype(int), index=X.index)
+
+    # Same functionality as predict(), but faster and intended for numpy arrays instead of pandas
+    # frames/series (as data types for the internally stored bounds as well as the passed data).
+    def predict_np(self, X: np.ndarray) -> np.ndarray:
+        prediction = np.ones(X.shape[0], dtype=bool)  # start by assuming each instance in box
+        for j in range(X.shape[1]):
+            prediction = prediction & (X[:, j] >= self._box_lbs[j]) & (X[:, j] <= self._box_ubs[j])
+        return prediction
 
     # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
     # Returns a dictionary with evaluation metrics.
@@ -337,6 +358,8 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         unique_values_per_feature = [sorted(X[col].unique().tolist()) for col in X.columns]
+        X_np = X.values  # working directly on numpy arrays rather than pandas faster
+        y_np = y.values
         rng = random.Random(25)
         # "Optimization": Repeated random sampling
         start_time = time.process_time()
@@ -351,11 +374,11 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
             bounds1 = [rng.choice(unique_values_per_feature[j]) for j in box_feature_idx]
             bounds2 = [rng.choice(unique_values_per_feature[j] + [bounds1[box_j]])
                        for box_j, j in enumerate(box_feature_idx)]
-            self._box_lbs = pd.Series([float('-inf')] * X.shape[1], index=X.columns)
-            self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
-            self._box_lbs.iloc[box_feature_idx] = [min(b1, b2) for b1, b2 in zip(bounds1, bounds2)]
-            self._box_ubs.iloc[box_feature_idx] = [max(b1, b2) for b1, b2 in zip(bounds1, bounds2)]
-            quality = wracc(y_true=y, y_pred=self.predict(X=X))
+            self._box_lbs = np.full(shape=X.shape[1], fill_value=-np.inf)  # made pd.Series later
+            self._box_ubs = np.full(shape=X.shape[1], fill_value=np.inf)  # ... as numpy is faster
+            self._box_lbs[box_feature_idx] = [min(b1, b2) for b1, b2 in zip(bounds1, bounds2)]
+            self._box_ubs[box_feature_idx] = [max(b1, b2) for b1, b2 in zip(bounds1, bounds2)]
+            quality = wracc_np(y_true=y_np, y_pred=self.predict_np(X=X_np))
             if quality > opt_quality:
                 opt_quality = quality
                 opt_box_lbs = self._box_lbs
@@ -363,8 +386,8 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
         end_time = time.process_time()
         # Post-processing (as for optimizer-based solutions): if box extends to the limit of
         # feature values in the given data, treat this value as unbounded
-        self._box_lbs = opt_box_lbs
-        self._box_ubs = opt_box_ubs
+        self._box_lbs = pd.Series(opt_box_lbs, index=X.columns)
+        self._box_ubs = pd.Series(opt_box_ubs, index=X.columns)
         self._box_lbs[self._box_lbs == X.min()] = float('-inf')
         self._box_ubs[self._box_ubs == X.max()] = float('inf')
         return {'optimization_status': None,
