@@ -37,7 +37,6 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
          'sd_args_list': [{'timeout': timeout} for timeout in SOLVER_TIMEOUTS]},
         {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': [{}]},
-        {'sd_name': 'PRIM-PRIM', 'sd_type': sd.PrimPRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'BI', 'sd_type': sd.BISubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'Beam', 'sd_type': sd.PysubgroupSubgroupDiscoverer,
