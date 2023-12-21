@@ -24,21 +24,22 @@ import sd
 # Different components of the experimental design.
 N_FOLDS = 5  # cross-validation
 SOLVER_TIMEOUTS = [1, 10, 60, 600, 3600]  # in seconds
+CARDINALITIES = [1, 2, 3, 4, 5, 10, None]  # maximum number of features used in subgroup
 
 
 # Define a list of subgroup-discovery methods, each comprising a subgroup-discovery method and a
 # list of (dictionaries containing) hyperparameter combinations used to initialize the method.
 def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[str, Any]]]]:
+    card_args = [{'k': k} for k in CARDINALITIES]
     return [
-        {'sd_name': 'MIP', 'sd_type': sd.MIPSubgroupDiscoverer,
-         'sd_args_list': [{'timeout': timeout} for timeout in SOLVER_TIMEOUTS]},
         {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer,
-         'sd_args_list': [{'timeout': timeout} for timeout in SOLVER_TIMEOUTS]},
-        {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': [{}]},
-        {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': [{}]},
-        {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
-        {'sd_name': 'BI', 'sd_type': sd.BISubgroupDiscoverer, 'sd_args_list': [{}]},
-        {'sd_name': 'Beam', 'sd_type': sd.BeamSearchSubgroupDiscoverer(), 'sd_args_list': [{}]}
+         'sd_args_list': [{'timeout': timeout, 'k': k}
+                          for timeout in SOLVER_TIMEOUTS for k in CARDINALITIES]},
+        {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'BI', 'sd_type': sd.BISubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'Beam', 'sd_type': sd.BeamSearchSubgroupDiscoverer, 'sd_args_list': card_args}
     ]
 
 
