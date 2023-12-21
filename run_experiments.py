@@ -15,7 +15,6 @@ import pathlib
 from typing import Any, Dict, Optional, Sequence, Type, Union
 
 import pandas as pd
-import pysubgroup
 import tqdm
 
 import data_handling
@@ -39,8 +38,7 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': [{}]},
         {'sd_name': 'BI', 'sd_type': sd.BISubgroupDiscoverer, 'sd_args_list': [{}]},
-        {'sd_name': 'Beam', 'sd_type': sd.PysubgroupSubgroupDiscoverer,
-         'sd_args_list': [{'model_type': pysubgroup.BeamSearch}]}
+        {'sd_name': 'Beam', 'sd_type': sd.BeamSearchSubgroupDiscoverer(), 'sd_args_list': [{}]}
     ]
 
 
