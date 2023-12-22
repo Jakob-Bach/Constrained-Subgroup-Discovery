@@ -436,6 +436,7 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
 
     Literature:
     - Friedman & Fisher (1999): "Bump hunting in high-dimensional data"
+    - Arzamasov et al. (2021): "REDS: Rule Extraction for Discovering Scenarios"
     - https://github.com/Arzik1987/prelim/blob/main/src/prelim/sd/PRIM.py
     """
 
@@ -497,21 +498,21 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         opt_is_ub = None  # either LB or UB updated
         # Ensure feature-cardinality constraint:
         if self._k is None:
-            candidate_feature_idxs = range(X.shape[1])
+            permissible_feature_idxs = range(X.shape[1])
         else:
             used_feature_idxs = np.where(((X < self._box_lbs) |
                                           (X > self._box_ubs)).any(axis=0))[0]
             if len(used_feature_idxs) == self._k:
-                candidate_feature_idxs = used_feature_idxs
+                permissible_feature_idxs = used_feature_idxs
             elif len(used_feature_idxs) > self._k:
                 raise RuntimeError('The algorithm used more features than allowed.')
             else:
-                candidate_feature_idxs = range(X.shape[1])
+                permissible_feature_idxs = range(X.shape[1])
         # Exclude features only having one unique value (i.e., all feature values equal first one):
-        candidate_feature_idxs = [j for j in candidate_feature_idxs if (X[:, j] != X[0, j]).any()]
-        if len(candidate_feature_idxs) == 0:  # no peeling possible
+        permissible_feature_idxs = [j for j in permissible_feature_idxs if (X[:, j] != X[0, j]).any()]
+        if len(permissible_feature_idxs) == 0:  # no peeling possible
             return False  # box unchanged
-        for j in candidate_feature_idxs:
+        for j in permissible_feature_idxs:
             # Check a new lower bound (if quantile between two feature values, choose middle):
             bound = np.quantile(X[is_instance_in_old_box, j], q=self._alpha, method='midpoint')
             # Only checking the new bound and combining with prior information (on whether instance
@@ -573,7 +574,6 @@ class BeamSearchSubgroupDiscoverer(SubgroupDiscoverer):
     # Return meta-data about the fitting process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        unique_values_per_feature = [sorted(X[col].unique()) for col in X.columns]
         X_np = X.values  # working directly on numpy arrays rather than pandas faster
         y_np = y.values
         start_time = time.process_time()
@@ -581,10 +581,6 @@ class BeamSearchSubgroupDiscoverer(SubgroupDiscoverer):
         beam_bounds = np.array([[np.repeat(-np.inf, repeats=X_np.shape[1]),
                                  np.repeat(np.inf, repeats=X_np.shape[1])]
                                 for _ in range(self._beam_width)])  # beam width * 2 * num features
-        # Indices (regarding feature's unique values) for these bounds are 0 and the max index:
-        beam_bound_idxs = np.array([[np.zeros(shape=X_np.shape[1], dtype=int),
-                                     [len(x) - 1 for x in unique_values_per_feature]]
-                                    for _ in range(self._beam_width)])  # beam width * 2 * num feat
         # Initial boxes contain all instances:
         beam_is_in_box = np.array([np.ones(shape=X_np.shape[0], dtype=bool)
                                    for _ in range(self._beam_width)])  # beam width * num instances
@@ -597,32 +593,30 @@ class BeamSearchSubgroupDiscoverer(SubgroupDiscoverer):
             # Copy boxes from the beam since the candidates for next beam will be updated, but we
             # still want to iterate over the unchanged beam of the previous iteration:
             cand_bounds = beam_bounds.copy()
-            cand_bound_idxs = beam_bound_idxs.copy()
             cand_is_in_box = beam_is_in_box.copy()
             prev_cand_changed_idxs = np.where(cand_has_changed)[0]
             cand_has_changed = np.zeros(shape=self._beam_width, dtype=bool)
             # Iterate over all previously updated boxes in the beam and try to refine them:
             for box_idx in prev_cand_changed_idxs:
                 bounds = beam_bounds[box_idx]
-                bound_idxs = beam_bound_idxs[box_idx]
                 is_in_box = beam_is_in_box[box_idx]
                 # If feature-cardinality constraint used, check how many features restricted in
                 # boy; if already k, only consider these features; else, consider all features:
                 if self._k is None:
-                    candidate_feature_idxs = range(X_np.shape[1])
+                    permissible_feature_idxs = range(X_np.shape[1])
                 else:
                     used_feature_idxs = np.where(((X_np < bounds[0]) |
                                                   (X_np > bounds[1])).any(axis=0))[0]
                     if len(used_feature_idxs) == self._k:
-                        candidate_feature_idxs = used_feature_idxs
+                        permissible_feature_idxs = used_feature_idxs
                     elif len(used_feature_idxs) > self._k:
                         raise RuntimeError('The algorithm used more features than allowed.')
                     else:
-                        candidate_feature_idxs = range(X_np.shape[1])
-                for j in candidate_feature_idxs:
+                        permissible_feature_idxs = range(X_np.shape[1])
+                for j in permissible_feature_idxs:
+                    bound_values = np.unique(X_np[is_in_box, j])  # sorted by default
                     # Test new values for lower bound (> box's previous one but <= box's UB)
-                    for value_idx in range(bound_idxs[0, j] + 1, bound_idxs[1, j] + 1):
-                        bound_value = unique_values_per_feature[j][value_idx]
+                    for bound_value in bound_values[1:]:
                         y_pred = is_in_box & (X_np[:, j] >= bound_value)
                         quality = wracc_np(y_true=y_np, y_pred=y_pred)
                         # Replace the minimum-quality candidate, but only if newly created box not
@@ -633,15 +627,12 @@ class BeamSearchSubgroupDiscoverer(SubgroupDiscoverer):
                             if all((x != new_bounds).any() for x in cand_bounds):
                                 min_quality_idx = np.where(cand_quality == cand_min_quality)[0][0]
                                 cand_bounds[min_quality_idx] = new_bounds
-                                cand_bound_idxs[min_quality_idx] = bound_idxs.copy()
-                                cand_bound_idxs[min_quality_idx, 0, j] = value_idx
                                 cand_is_in_box[min_quality_idx] = y_pred
                                 cand_has_changed[min_quality_idx] = True
                                 cand_quality[min_quality_idx] = quality
                                 cand_min_quality = cand_quality.min()
                     # Test new values for upper bound (< box's previous one but >= box's LB)
-                    for value_idx in range(bound_idxs[0, j], bound_idxs[1, j]):
-                        bound_value = unique_values_per_feature[j][value_idx]
+                    for bound_value in bound_values[:-1]:
                         y_pred = is_in_box & (X_np[:, j] <= bound_value)
                         quality = wracc_np(y_true=y_np, y_pred=y_pred)
                         if quality > cand_min_quality:
@@ -650,15 +641,12 @@ class BeamSearchSubgroupDiscoverer(SubgroupDiscoverer):
                             if all((x != new_bounds).any() for x in cand_bounds):
                                 min_quality_idx = np.where(cand_quality == cand_min_quality)[0][0]
                                 cand_bounds[min_quality_idx] = new_bounds
-                                cand_bound_idxs[min_quality_idx] = bound_idxs.copy()
-                                cand_bound_idxs[min_quality_idx, 1, j] = value_idx
                                 cand_is_in_box[min_quality_idx] = y_pred
                                 cand_has_changed[min_quality_idx] = True
                                 cand_quality[min_quality_idx] = quality
                                 cand_min_quality = cand_quality.min()
             # Best candidates are next beam; copy() unnecessary, as next candidates will be copied:
             beam_bounds = cand_bounds
-            beam_bound_idxs = cand_bound_idxs
             beam_is_in_box = cand_is_in_box
         # Select best subgroup out of beam:
         max_quality_idx = np.where(cand_quality == cand_quality.max())[0][0]
