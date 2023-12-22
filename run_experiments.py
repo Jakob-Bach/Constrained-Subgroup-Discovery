@@ -38,7 +38,7 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
         {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
-        {'sd_name': 'BI', 'sd_type': sd.BISubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'BI', 'sd_type': sd.BestIntervalSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'Beam', 'sd_type': sd.BeamSearchSubgroupDiscoverer, 'sd_args_list': card_args}
     ]
 

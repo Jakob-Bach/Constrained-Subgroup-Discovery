@@ -13,7 +13,6 @@ ortools==9.7.2996
 packaging==23.1
 pandas==2.0.3
 Pillow==10.0.0
-prelim @ git+https://github.com/Arzik1987/prelim@f54dd7eb2154724fe05b53f31df4c694de2b4f9d
 protobuf==4.24.2
 pycparser==2.21
 pyparsing==3.0.9

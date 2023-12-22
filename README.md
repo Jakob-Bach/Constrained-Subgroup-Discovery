@@ -109,11 +109,9 @@ After activating the environment, you can use `python` and `pip` as usual.
 To install all necessary dependencies for this repo, run
 
 ```bash
-python -m pip install -r requirements.txt --no-dependencies
+python -m pip install -r requirements.txt
 ```
 
-(The latter option is necessary because dependency `prelim` officially depends on some fixed (old) versions of `numpy` and `scikit-learn`,
-but actually also work with the newer version that are part of the dependency list.)
 If you make changes to the environment and you want to persist them, run
 
 ```bash

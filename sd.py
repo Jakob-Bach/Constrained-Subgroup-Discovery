@@ -12,7 +12,6 @@ from typing import Dict, Optional
 import numpy as np
 from ortools.linear_solver import pywraplp
 import pandas as pd
-import prelim.sd.BI
 import z3
 
 
@@ -388,41 +387,6 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
                 'optimization_time': end_time - start_time}
 
 
-class BISubgroupDiscoverer(SubgroupDiscoverer):
-    """Best-interval algorithm from the package "prelim"
-
-    Heuristic search procedure using beam search.
-
-    This wrapper class renames the parameter for the number of features used and allows it to be
-    None (choosing it based on data dimensionality).
-
-    Literature:
-    - Mampaey et a. (2012): "Efficient Algorithms for Finding Richer Subgroup Descriptions in
-      Numeric and Nominal Data"
-    - Arzamasov et al. (2021): "REDS: Rule Extraction for Discovering Scenarios"
-    """
-
-    # Initialize fields. "k" is the maximum number of features used in the subgroup description.
-    def __init__(self, k: Optional[int] = None):
-        super().__init__()
-        self._k = k
-
-    # Run the algorithm from "prelim" with its default hyperparameters + the desired feature
-    # cardinality. Return meta-data about the fitting process (see superclass for more details).
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
-        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        k = X.shape[1] if self._k is None else self._k
-        model = prelim.sd.BI.BI(depth=k)  # parameter has a different name
-        start_time = time.process_time()
-        model.fit(X=X, y=y)
-        end_time = time.process_time()
-        # Unrestricted features of box are -/+ inf by default, so no separate initalization needed
-        self._box_lbs = pd.Series(model.box_[0], index=X.columns)
-        self._box_ubs = pd.Series(model.box_[1], index=X.columns)
-        return {'optimization_status': None,
-                'optimization_time': end_time - start_time}
-
-
 class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
     """PRIM algorithm
 
@@ -648,6 +612,135 @@ class BeamSearchSubgroupDiscoverer(SubgroupDiscoverer):
             # Best candidates are next beam; copy() unnecessary, as next candidates will be copied:
             beam_bounds = cand_bounds
             beam_is_in_box = cand_is_in_box
+        # Select best subgroup out of beam:
+        max_quality_idx = np.where(cand_quality == cand_quality.max())[0][0]
+        end_time = time.process_time()
+        # Post-processing (as for optimizer-based solutions): if box extends to the limit of
+        # feature values in the given data, treat this value as unbounded
+        self._box_lbs = pd.Series(beam_bounds[max_quality_idx, 0], index=X.columns)
+        self._box_ubs = pd.Series(beam_bounds[max_quality_idx, 1], index=X.columns)
+        self._box_lbs[self._box_lbs == X.min()] = float('-inf')
+        self._box_ubs[self._box_ubs == X.max()] = float('inf')
+        return {'optimization_status': None,
+                'optimization_time': end_time - start_time}
+
+
+class BestIntervalSubgroupDiscoverer(SubgroupDiscoverer):
+    """Best-interval algorithm, wrapped in a beam seach
+
+    Heuristic search procedure that maintains a beam (list) of candidate boxes and iteratively
+    refines them. The best-interval technique for refinement checks all lower/upper bound
+    combinations for each feature, only requiring linear instead of quadratic cost regarding
+    the number of unique feature values, thanks to WRAcc being an additive metric. For comparison,
+    our other beam-search implementation achieves linear cost by only changing either lower or
+    upper bound, but not both simultaneously per feature and iteration. Otherwise, the search
+    procedures are quite similar.
+    A similar implementation can also be found in prelim.sd.BI (seems to be slower on average and
+    has an additional termination condition in the form of a hard-coded iteration count).
+
+    Literature:
+    - Mampaey et al. (2012): "Efficient Algorithms for Finding Richer Subgroup Descriptions in
+      Numeric and Nominal Data"
+    - Arzamasov et al. (2021): "REDS: Rule Extraction for Discovering Scenarios"
+    - https://github.com/Arzik1987/prelim/blob/main/src/prelim/sd/BI.py
+    """
+
+    # Initialize fields.
+    # - "k" is the maximum number of features used in the subgroup description.
+    # - "beam_width" is the number of candidate subgroups kept per iteration (lower == faster but
+    #   potentially lower quality).
+    def __init__(self, k: Optional[int] = None, beam_width: int = 10):
+        super().__init__()
+        self._k = k
+        self._beam_width = beam_width
+
+    # Iteratively refine boxes; stop if no box in the beam has changed in the previous iteration.
+    # Return meta-data about the fitting process (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        X_np = X.values  # working directly on numpy arrays rather than pandas faster
+        y_np = y.values
+        start_time = time.process_time()
+        # Initially, all boxes in the beam are unbounded, i.e., limits are (-inf, inf) per feature:
+        beam_bounds = np.array([[np.repeat(-np.inf, repeats=X_np.shape[1]),
+                                 np.repeat(np.inf, repeats=X_np.shape[1])]
+                                for _ in range(self._beam_width)])  # beam width * 2 * num features
+        # Initial boxes contain all instances:
+        beam_is_in_box = np.array([np.ones(shape=X_np.shape[0], dtype=bool)
+                                   for _ in range(self._beam_width)])  # beam width * num instances
+        # Boxes containing all instances have WRAcc of 0:
+        beam_quality = np.zeros(shape=self._beam_width)
+        # All boxes should be considered for updates:
+        cand_has_changed = np.ones(shape=self._beam_width, dtype=bool)
+        cand_min_quality = 0
+        while np.count_nonzero(cand_has_changed) > 0:  # at least one box changed last iteration
+            # Copy boxes from the beam since the candidates for next beam will be updated, but we
+            # still want to iterate over the unchanged beam of the previous iteration:
+            cand_bounds = beam_bounds.copy()
+            cand_is_in_box = beam_is_in_box.copy()
+            cand_quality = beam_quality.copy()
+            prev_cand_changed_idxs = np.where(cand_has_changed)[0]
+            cand_has_changed = np.zeros(shape=self._beam_width, dtype=bool)
+            # Iterate over all previously updated boxes in the beam and try to refine them:
+            for box_idx in prev_cand_changed_idxs:
+                bounds = beam_bounds[box_idx]
+                is_in_box = beam_is_in_box[box_idx]
+                box_quality = beam_quality[box_idx]
+                # If feature-cardinality constraint used, check how many features restricted in
+                # boy; if already k, only consider these features; else, consider all features:
+                if self._k is None:
+                    permissible_feature_idxs = range(X_np.shape[1])
+                else:
+                    used_feature_idxs = np.where(((X_np < bounds[0]) |
+                                                  (X_np > bounds[1])).any(axis=0))[0]
+                    if len(used_feature_idxs) == self._k:
+                        permissible_feature_idxs = used_feature_idxs
+                    elif len(used_feature_idxs) > self._k:
+                        raise RuntimeError('The algorithm used more features than allowed.')
+                    else:
+                        permissible_feature_idxs = range(X_np.shape[1])
+                for j in permissible_feature_idxs:
+                    # BestInterval routine for one feature (see Mampaey et al. (2012)):
+                    feat_lb_value = bounds[0, j]  # "l" in Mampaey et al. (2012)
+                    feat_ub_value = bounds[1, j]  # "r" in Mampaey et al. (2012)
+                    feat_is_in_box = is_in_box
+                    feat_quality = box_quality  # "WRAcc_{max}" in Mampaey et al. (2012)
+                    feat_lb_current_value = None  # "t_{max}" in Mampaey et al. (2012)
+                    feat_lb_current_quality = float('-inf')  # "h_{max}" in Mampaey et al. (2012)
+                    # Test new values for bounds; leverage that WRAcc is additive to reduce number
+                    # of (LB, UB) combinations from quadratic to linear:
+                    bound_values = np.unique(X_np[is_in_box, j])  # sorted by default
+                    for bound_value in bound_values:
+                        y_pred = is_in_box & (X_np[:, j] >= bound_value)
+                        quality = wracc_np(y_true=y_np, y_pred=y_pred)
+                        if quality > feat_lb_current_quality:
+                            feat_lb_current_value = bound_value
+                            feat_lb_current_quality = quality
+                        y_pred = (is_in_box & (X_np[:, j] >= feat_lb_current_value) &
+                                  (X_np[:, j] <= bound_value))
+                        quality = wracc_np(y_true=y_np, y_pred=y_pred)
+                        if quality > feat_quality:
+                            feat_lb_value = feat_lb_current_value
+                            feat_ub_value = bound_value
+                            feat_is_in_box = y_pred
+                            feat_quality = quality
+                    # Update list of candidate boxes with best-interval bounds for current feature
+                    # in case they are better than one other candidate box and not a duplicate:
+                    if feat_quality > cand_min_quality:
+                        new_bounds = bounds.copy()
+                        new_bounds[0, j] = feat_lb_value
+                        new_bounds[1, j] = feat_ub_value
+                        if all((x != new_bounds).any() for x in cand_bounds):
+                            min_quality_idx = np.where(cand_quality == cand_min_quality)[0][0]
+                            cand_bounds[min_quality_idx] = new_bounds
+                            cand_is_in_box[min_quality_idx] = feat_is_in_box
+                            cand_has_changed[min_quality_idx] = True
+                            cand_quality[min_quality_idx] = feat_quality
+                            cand_min_quality = cand_quality.min()
+            # Best candidates are next beam; copy() unnecessary, as next candidates will be copied:
+            beam_bounds = cand_bounds
+            beam_is_in_box = cand_is_in_box
+            beam_quality = cand_quality
         # Select best subgroup out of beam:
         max_quality_idx = np.where(cand_quality == cand_quality.max())[0][0]
         end_time = time.process_time()
