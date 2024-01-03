@@ -35,38 +35,53 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     # Define column list for evaluation:
     evaluation_metrics = ['optimization_time', 'fitting_time', 'train_wracc', 'test_wracc']
 
-    print('\nHow are the optimization statuses distributed over timeouts?')
-    print(results.groupby(['sd_name', 'param.timeout'])['optimization_status'].value_counts())
+    # Compute further evaluation metrics:
+    results['time_fit_opt_diff'] = results['fitting_time'] - results['optimization_time']
+    results['wracc_train_test_diff'] = results['train_wracc'] - results['test_wracc']
 
-    print('\nHow are the mean values of evaluation metrics distributed (for the highest timeout)?')
-    print(results[results['param.timeout'].isin([float('nan'), 3600])].groupby('sd_name')[
-        evaluation_metrics].mean().round(2))
+    # Insert placeholder value for unlimited cardinality (else not appearing in groupby())
+    max_k = 'no'
+    results['param.k'].fillna(max_k, inplace=True)
 
-    print('\nHow is the mean value of evaluation metrics distributed over timeouts?')
-    print(results.groupby(['sd_name', 'param.timeout'])[evaluation_metrics].mean().round(2))
+    print('\n---- Default analysis (max timeout, max cardinality) ----')
+
+    eval_results = results[results['param.timeout'].isin([float('nan'), 3600]) &
+                           (results['param.k'] == max_k)]
+    no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
+        lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
+    no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+
+    print('\nHow are the mean values of evaluation metrics distributed (all datasets)?')
+    print(eval_results.groupby('sd_name')[evaluation_metrics].mean().round(3))
+
+    print('\nHow are the mean values of evaluation metrics distributed (datasets without timeout',
+          'in exact optimization)?')
+    print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
+        'sd_name')[evaluation_metrics].mean().round(3))
 
     print('\nHow is the difference "train - test" in WRAcc distributed?')
-    print_results = results[['sd_name', 'dataset_name', 'split_idx', 'param.timeout']].copy()
-    print_results['diff'] = results['train_wracc'] - results['test_wracc']
-    print(print_results.groupby('sd_name')['diff'].describe().transpose().round(2))
-    print(print_results.groupby(['sd_name', 'param.timeout'])['diff'].describe().round(3))
+    print(eval_results.groupby('sd_name')['wracc_train_test_diff'].describe().transpose().round(3))
 
-    print('\nHow is the difference "entire fitting - only optimization" in runtime distributed?')
-    print_results = results[['sd_name']].copy()
-    print_results['diff'] = results['fitting_time'] - results['optimization_time']
-    print(print_results.groupby('sd_name')['diff'].describe().transpose().round(2))
-
-    print('\nHow is the difference "MIP - SMT" in the values of evaluation metrics distributed?')
-    print_results = results.pivot(index=['dataset_name', 'split_idx', 'param.timeout'],
-                                  columns='sd_name', values=evaluation_metrics).reset_index()
+    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
+          '(all datasets)?')
+    print_results = eval_results.pivot(index=['dataset_name', 'split_idx'], columns='sd_name',
+                                       values=evaluation_metrics).reset_index()
     for metric in evaluation_metrics:
-        print_results[(metric, 'diff')] = (print_results[(metric, 'MIP')] -
-                                           print_results[(metric, 'SMT')])
+        print_results[(metric, 'diff')] = (print_results[(metric, 'SMT')] -
+                                           print_results[(metric, 'Beam')])
     print_results = print_results.loc[:, (slice(None), ['', 'diff'])]  # keep "diff" & ID cols
     print_results = print_results.droplevel(level='sd_name', axis='columns')
-    print(print_results[evaluation_metrics].describe().round(2))
+    print(print_results[evaluation_metrics].describe().round(3))
 
-    print('\nHow is the runtime Spearman-correlated to dataset size (for the highest timeout)?')
+    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
+          '(datasets without timeout in exact optimization)?')
+    print(print_results.loc[print_results['dataset_name'].isin(no_timeout_datasets),
+                            evaluation_metrics].describe().round(3))
+
+    print('\nHow is the difference "entire fitting - only optimization" in runtime distributed?')
+    print(eval_results.groupby('sd_name')['time_fit_opt_diff'].describe().transpose().round(2))
+
+    print('\nHow is the runtime Spearman-correlated to dataset size?')
     dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
     print_results = dataset_overview.rename(columns={'n_instances': 'm', 'n_features': 'n'})
     print_results['n*m'] = print_results['n'] * print_results['m']
@@ -74,10 +89,85 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         lambda dataset_name: data_handling.load_dataset(
             dataset_name=dataset_name, directory=data_dir)[0].nunique().sum())  # 0 = "X", 1 = "y"
     print_results = print_results.merge(
-        results.loc[results['param.timeout'].isin([float('nan'), 3600]),
-                    ['dataset_name', 'sd_name', 'optimization_time', 'fitting_time']].rename(
+        eval_results[['dataset_name', 'sd_name', 'optimization_time', 'fitting_time']].rename(
             columns={'dataset_name': 'dataset'})).drop(columns='dataset')
     print(print_results.groupby('sd_name').corr(method='spearman').round(2))
+
+    print('\n---- Timeout analysis ----')
+
+    print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
+    print_results = results.loc[results['sd_name'] == 'SMT',
+                                ['param.k', 'param.timeout', 'optimization_status']].copy()
+    print_results = print_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
+        lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
+    print(print_results.pivot(index='param.k', columns='param.timeout').applymap('{:.1%}'.format))
+
+    eval_results = results[(results['sd_name'] == 'SMT') & (results['param.k'] == max_k)]
+    all_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
+        lambda x: (x == 'unknown').all())  # returns Series with bool values and DS names as index
+    all_timeout_datasets = all_timeout_datasets[all_timeout_datasets].index.to_list()
+
+    print('\nHow is the mean value of evaluation metrics distributed over timeouts (with maximum',
+          'cardinality and all datasets)?')
+    print(eval_results.groupby('param.timeout')[evaluation_metrics].mean().round(3))
+
+    print('\nHow is the mean value of evaluation metrics distributed over timeouts (with maximum',
+          'cardinality and timeout-only datasets)?')
+    print(eval_results[eval_results['dataset_name'].isin(all_timeout_datasets)].groupby(
+        'param.timeout')[evaluation_metrics].mean().round(3))
+
+    print('\nHow is the difference "train - test" in WRAcc distributed over timeouts (with',
+          'maximum cardinality and all datasets)?')
+    print(eval_results.groupby('param.timeout')['wracc_train_test_diff'].describe().round(3))
+
+    print('\nHow is the difference "train - test" in WRAcc distributed over timeouts (with',
+          'maximum cardinality and timeout-only datasets)?')
+    print(eval_results[eval_results['dataset_name'].isin(all_timeout_datasets)].groupby(
+        'param.timeout')['wracc_train_test_diff'].describe().round(3))
+
+    print('\n---- Cardinality analysis (max timeout) ----')
+
+    eval_results = results[results['param.timeout'].isin([float('nan'), 3600])]
+    no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
+        lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
+    no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+
+    print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
+          '(all datasets)?')
+    for metric in evaluation_metrics:
+        print(eval_results.groupby(['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
+            index='param.k', columns='sd_name').round(3))
+
+    print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
+          '(datasets without timeout in exact optimization)?')
+    for metric in evaluation_metrics:
+        print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
+            ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
+                index='param.k', columns='sd_name').round(3))
+
+    print('\nHow is the mean difference "train - test" in WRAcc distributed over cardinality "k"?')
+    print(eval_results.groupby(['sd_name', 'param.k'])['wracc_train_test_diff'].mean(
+        ).reset_index().pivot(index='param.k', columns='sd_name').round(3))
+
+    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
+          'over cardinality "k" (all datasets)?')
+    print_results = eval_results.pivot(index=['dataset_name', 'split_idx', 'param.k'],
+                                       columns='sd_name', values=evaluation_metrics).reset_index()
+    for metric in evaluation_metrics:
+        print_results[(metric, 'diff')] = (print_results[(metric, 'SMT')] -
+                                           print_results[(metric, 'Beam')])
+    print_results = print_results.loc[:, (slice(None), ['', 'diff'])]  # keep "diff" & ID cols
+    print_results = print_results.droplevel(level='sd_name', axis='columns')
+    for metric in evaluation_metrics:
+        print(f'Metric: {metric}')
+        print(print_results.groupby('param.k')[metric].describe().round(3))
+
+    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
+          'over cardinality "k" (datasets without timeout in exact optimization)?')
+    for metric in evaluation_metrics:
+        print(f'Metric: {metric}')
+        print(print_results[print_results['dataset_name'].isin(no_timeout_datasets)].groupby(
+            'param.k')[metric].describe().round(3))
 
 
 # Parse some command-line arguments and run the main routine.
