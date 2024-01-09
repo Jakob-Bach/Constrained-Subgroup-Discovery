@@ -148,6 +148,9 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
                                    for i in range(n_instances)]
         is_value_in_box_ub_vars = [[model.BoolVar(name=f'x_ub_{i}_{j}') for j in range(n_features)]
                                    for i in range(n_instances)]
+        is_feature_used_vars = [model.BoolVar(name=f'f_{j}') for j in range(n_features)]
+        is_feature_used_lb_vars = [model.BoolVar(name=f'f_lb_{j}') for j in range(n_features)]
+        is_feature_used_ub_vars = [model.BoolVar(name=f'f_ub_{j}') for j in range(n_features)]
 
         # Define auxiliary expressions for use in objective and potentially even constraints
         # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
@@ -186,21 +189,21 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         # (2) Relationship between lower and upper bound for each feature
         for j in range(n_features):
             model.Add(lb_vars[j] <= ub_vars[j])
-
         # (3) Limit number of features used in the box (i.e., where bounds exclude instances)
+        for j in range(n_features):
+            # There is any Instance i where Feature j's value not in box -> Feature j used
+            for i in range(n_instances):
+                model.Add(1 - is_value_in_box_lb_vars[i][j] <= is_feature_used_lb_vars[j])
+                model.Add(1 - is_value_in_box_ub_vars[i][j] <= is_feature_used_ub_vars[j])
+                model.Add(is_feature_used_lb_vars[j] <= is_feature_used_vars[j])
+                model.Add(is_feature_used_ub_vars[j] <= is_feature_used_vars[j])
+            # Feature j used -> there is any Instance i where Feature j's value not in box
+            model.Add(
+                is_feature_used_vars[j] <=
+                model.Sum(1 - is_value_in_box_lb_vars[i][j] for i in range(n_instances)) +
+                model.Sum(1 - is_value_in_box_ub_vars[i][j] for i in range(n_instances))
+            )
         if self._k is not None:
-            is_feature_used_vars = [model.BoolVar(name=f'f_{j}') for j in range(n_features)]
-            for j in range(n_features):
-                # There is any Instance i where Feature j's value not in box -> Feature j used
-                for i in range(n_instances):
-                    model.Add(1 - is_value_in_box_lb_vars[i][j] <= is_feature_used_vars[j])
-                    model.Add(1 - is_value_in_box_ub_vars[i][j] <= is_feature_used_vars[j])
-                # Feature j used -> there is any Instance i where Feature j's value not in box
-                model.Add(
-                    is_feature_used_vars[j] <=
-                    model.Sum(1 - is_value_in_box_lb_vars[i][j] for i in range(n_instances)) +
-                    model.Sum(1 - is_value_in_box_ub_vars[i][j] for i in range(n_instances))
-                )
             model.Add(model.Sum(is_feature_used_vars) <= self._k)
 
         # Optimize and store/return results:
@@ -214,10 +217,12 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
             # instances in box instead; nice side-effect: box is tight around instances instead of
             # extending into margin around them
             is_instance_in_box = [bool(var.solution_value()) for var in is_instance_in_box_vars]
+            is_lb_unused = [not bool(var.solution_value()) for var in is_feature_used_lb_vars]
+            is_ub_unused = [not bool(var.solution_value()) for var in is_feature_used_ub_vars]
             self._box_lbs = X.iloc[is_instance_in_box].min()
-            self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
+            self._box_lbs[is_lb_unused] = float('-inf')
             self._box_ubs = X.iloc[is_instance_in_box].max()
-            self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
+            self._box_ubs[is_ub_unused] = float('inf')
         else:
             self._box_lbs = pd.Series([float('-inf')] * X.shape[1], index=X.columns)
             self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
@@ -275,6 +280,8 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         ub_vars = [z3.Real(f'ub_{j}') for j in range(n_features)]
         is_instance_in_box_vars = [z3.Bool(f'x_{i}') for i in range(n_instances)]
         is_feature_used_vars = [z3.Bool(f'f_{j}') for j in range(n_features)]
+        is_feature_used_lb_vars = [z3.Bool(f'f_lb_{j}') for j in range(n_features)]
+        is_feature_used_ub_vars = [z3.Bool(f'f_ub_{j}') for j in range(n_features)]
 
         # Define optimizer and objective:
         optimizer = z3.Optimize()
@@ -309,12 +316,13 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         # (2) Relationship between lower and upper bound for each feature
         for j in range(n_features):
             optimizer.add(lb_vars[j] <= ub_vars[j])
-
         # (3) Limit number of features used in the box (i.e., where bounds exclude instances)
+        for j in range(n_features):
+            optimizer.add(is_feature_used_lb_vars[j] == (lb_vars[j] > feature_minima[j]))
+            optimizer.add(is_feature_used_ub_vars[j] == (ub_vars[j] < feature_maxima[j]))
+            optimizer.add(is_feature_used_vars[j] == z3.Or(is_feature_used_lb_vars[j],
+                                                           is_feature_used_ub_vars[j]))
         if self._k is not None:
-            for j in range(n_features):
-                optimizer.add(is_feature_used_vars[j] == z3.Or(lb_vars[j] > feature_minima[j],
-                                                               ub_vars[j] < feature_maxima[j]))
             optimizer.add(z3.Sum([is_feature_used for is_feature_used in is_feature_used_vars])
                           <= self._k)
         # (4) Make alternatives use a certain number of new features (not used in other subgroups)
@@ -336,14 +344,15 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
                                     objective.value().denominator_as_long())
         # To avoid potential numeric issues when extracting values of real variables, use actual
         # feature values of instances in box as bounds (also makes box tight around instances).
-        # If bounds do not exclude any instances (LB == min or UB == max) or if no valid model was
-        # found (variables are None -> bool values are False -> no instances in box -> min()/max()
-        # of box instances' feature values are NaN), use -/+ inf as bounds
+        # If lower or upper bounds do not exclude any instances or if no valid model was found
+        # (variables are None -> bool values are False), use -/+ inf as bounds.
         is_instance_in_box = [bool(optimizer.model()[var]) for var in is_instance_in_box_vars]
-        self._box_lbs = X.iloc[is_instance_in_box].min().fillna(float('-inf'))
-        self._box_lbs[self._box_lbs == feature_minima] = float('-inf')
-        self._box_ubs = X.iloc[is_instance_in_box].max().fillna(float('inf'))
-        self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
+        is_lb_unused = [not bool(optimizer.model()[var]) for var in is_feature_used_lb_vars]
+        is_ub_unused = [not bool(optimizer.model()[var]) for var in is_feature_used_ub_vars]
+        self._box_lbs = X.iloc[is_instance_in_box].min()
+        self._box_lbs.iloc[is_lb_unused] = float('-inf')
+        self._box_ubs = X.iloc[is_instance_in_box].max()
+        self._box_ubs.iloc[is_ub_unused] = float('inf')
         return {'optimization_status': str(optimization_status),
                 'optimization_time': end_time - start_time,
                 'objective_value': objective_value}
