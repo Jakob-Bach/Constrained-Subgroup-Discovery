@@ -39,14 +39,18 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     results['time_fit_opt_diff'] = results['fitting_time'] - results['optimization_time']
     results['wracc_train_test_diff'] = results['train_wracc'] - results['test_wracc']
 
-    # Insert placeholder value for unlimited cardinality (else not appearing in groupby())
-    max_k = 'no'
+    # Define constants for filtering results:
+    max_k = 'no'  # placeholder value for unlimited cardinality (else not appearing in groupby())
     results['param.k'].fillna(max_k, inplace=True)
+    max_timeout = results['param.timeout'].max()
+    min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
-    print('\n---- Default analysis (max timeout, max cardinality) ----')
+    print('\n---- Default analysis (max timeout, max cardinality, no alternatives) ----')
 
-    eval_results = results[results['param.timeout'].isin([float('nan'), 3600]) &
-                           (results['param.k'] == max_k)]
+    eval_results = results[results['param.timeout'].isin([float('nan'), max_timeout]) &
+                           (results['param.k'] == max_k) &
+                           results['alt.number'].isin([float('nan'), 0]) &
+                           results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
     no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
         lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
@@ -97,13 +101,17 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\n---- Timeout analysis ----')
 
     print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
-    print_results = results.loc[results['sd_name'] == 'SMT',
+    print_results = results.loc[(results['sd_name'] == 'SMT') &
+                                results['alt.number'].isin([float('nan'), 0]) &
+                                results['param.tau_abs'].isin([float('nan'), min_tau_abs]),
                                 ['param.k', 'param.timeout', 'optimization_status']].copy()
     print_results = print_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.k', columns='param.timeout').applymap('{:.1%}'.format))
 
-    eval_results = results[(results['sd_name'] == 'SMT') & (results['param.k'] == max_k)]
+    eval_results = results[(results['sd_name'] == 'SMT') & (results['param.k'] == max_k) &
+                           results['alt.number'].isin([float('nan'), 0]) &
+                           results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
     all_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
         lambda x: (x == 'unknown').all())  # returns Series with bool values and DS names as index
     all_timeout_datasets = all_timeout_datasets[all_timeout_datasets].index.to_list()
@@ -128,7 +136,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n---- Cardinality analysis (max timeout) ----')
 
-    eval_results = results[results['param.timeout'].isin([float('nan'), 3600])]
+    eval_results = results[results['param.timeout'].isin([float('nan'), max_timeout]) &
+                           results['alt.number'].isin([float('nan'), 0]) &
+                           results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
     no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
         lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
