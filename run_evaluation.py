@@ -34,6 +34,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     # Define column list for evaluation:
     evaluation_metrics = ['optimization_time', 'fitting_time', 'train_wracc', 'test_wracc']
+    alt_evaluation_metrics = ['alt.hamming', 'alt.jaccard']
 
     # Compute further evaluation metrics:
     results['time_fit_opt_diff'] = results['fitting_time'] - results['optimization_time']
@@ -179,6 +180,32 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print(f'Metric: {metric}')
         print(print_results[print_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             'param.k')[metric].describe().round(3))
+
+    print('\n---- Alternatives analysis (fixed cardinality, max timeout) ----')
+
+    eval_results = results[results['alt.number'].notna()]
+    no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
+        lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
+    no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+
+    print('\nHow is the number of finished SMT tasks distributed over the number of alternative',
+          'and the dissimilarity threshold?')
+    print(eval_results.groupby(['alt.number', 'param.tau_abs'])['optimization_status'].agg(
+        lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index().pivot(
+            index='alt.number', columns='param.tau_abs').applymap('{:.1%}'.format))
+
+    print('\nHow are the mean values of evaluation metrics distributed over the number of',
+          'alternative and the dissimilarity threshold (all datasets)?')
+    for metric in evaluation_metrics + ['wracc_train_test_diff'] + alt_evaluation_metrics:
+        print(eval_results.groupby(['alt.number', 'param.tau_abs'])[metric].mean().reset_index(
+            ).pivot(index='alt.number', columns='param.tau_abs').round(3))
+
+    print('\nHow are the mean values of evaluation metrics distributed over the number of',
+          'alternative and the dissimilarity threshold (datasets without timeout)?')
+    for metric in evaluation_metrics + ['wracc_train_test_diff'] + alt_evaluation_metrics:
+        print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
+            ['alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
+                index='alt.number', columns='param.tau_abs').round(3))
 
 
 # Parse some command-line arguments and run the main routine.
