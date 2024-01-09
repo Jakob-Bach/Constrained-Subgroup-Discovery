@@ -83,6 +83,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\nHow is the runtime Spearman-correlated to dataset size?')
     dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
+    dataset_overview = dataset_overview[['dataset', 'n_instances', 'n_features']]
     print_results = dataset_overview.rename(columns={'n_instances': 'm', 'n_features': 'n'})
     print_results['n*m'] = print_results['n'] * print_results['m']
     print_results['sum_unique_values'] = print_results['dataset'].apply(
