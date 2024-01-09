@@ -7,7 +7,7 @@ Classes for subgroup-discovery methods.
 from abc import ABCMeta, abstractmethod
 import random
 import time
-from typing import Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 from ortools.linear_solver import pywraplp
@@ -37,6 +37,13 @@ def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     n_actual_pos = np.count_nonzero(y_true)
     n_pred_pos = np.count_nonzero(y_pred)
     return n_true_pos / n_instances - n_pred_pos * n_actual_pos / (n_instances ** 2)
+
+
+# Computes the Jaccard similarity between two binary sequences indicating set membership.
+def jaccard(set_1_indicators: Sequence[bool], set_2_indicators: Sequence[bool]) -> float:
+    size_intersection = sum([x and y for x, y in zip(set_1_indicators, set_2_indicators)])
+    size_union = sum([x or y for x, y in zip(set_1_indicators, set_2_indicators)])
+    return size_intersection / size_union
 
 
 class SubgroupDiscoverer(metaclass=ABCMeta):
@@ -83,16 +90,18 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
         return prediction
 
     # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
-    # Returns a dictionary with evaluation metrics.
+    # Returns a data frame with evaluation metrics. Each row represents a subgroup; unless this
+    # method is overridden, there will be only one row/subgroup.
     def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
-                 y_test: pd.Series) -> Dict[str, float]:
+                 y_test: pd.Series) -> pd.DataFrame:
         start_time = time.process_time()
-        results = self.fit(X=X_train, y=y_train)
+        results = self.fit(X=X_train, y=y_train)  # returns a dict with evaluation metrics
         end_time = time.process_time()
         results['fitting_time'] = end_time - start_time
         results['train_wracc'] = wracc(y_true=y_train, y_pred=self.predict(X=X_train))
         results['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
-        return results
+        # Convert dict into single-row DataFrame; subclasses may return multiple subgroups (= rows)
+        return pd.DataFrame([results])
 
 
 class MIPSubgroupDiscoverer(SubgroupDiscoverer):
@@ -221,19 +230,38 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
 
     White-box formulation of subgroup discovery as a Satisfiability Modulo Theories (SMT)
     optimization problem.
+    Cannot only find one subgroup but also alternative descriptions for the optimal one.
     """
 
-    # Initialize fields. "timeout" should be indicated in seconds; if None, then no timeout.
-    # "k" is the maximum number of features used in the subgroup description.
-    def __init__(self, k: Optional[int] = None, timeout: Optional[float] = None):
+    # Initialize fields.
+    # - "timeout" should be indicated in seconds; if None, then no timeout.
+    # - "k" is the maximum number of features used in the subgroup description; if None, then all.
+    # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
+    #   subgroup searched). Should only be used if "k" is set (else there may be no alternatives).
+    # - "tau_abs" is the number of new features in each alternative subgroup description compared
+    #   to the original subgroup description; should be set if and only if "a" is set.
+    def __init__(self, timeout: Optional[float] = None, k: Optional[int] = None,
+                 a: Optional[int] = None, tau_abs: Optional[int] = None):
         super().__init__()
-        self._k = k
         self._timeout = timeout
+        self._k = k
+        self._a = a
+        self._tau_abs = tau_abs
 
-    # Model and optimize subgroup discovery with Z3. Return meta-data about the fitting process
-    # (see superclass for more details).
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+    # Find original subgroup (if only "X" and "y" are passed) by optimizing WRAcc or an alternative
+    # subgroup description (if the optional arguments are passed) by optimizing normalized Hamming
+    # similarity to an existing subgroup.
+    # Return meta-data about the optimization process, similar to fit().
+    # - "is_feature_used_list": for each existing subgroup and each feature, indicate if used.
+    #   An alternative subgroup will use at least "self._tau_abs" new features compared to each
+    #   existing subgroup.
+    # - "is_instance_in_orig_box": for each instance, indicate if in existing subgroup.
+    #   An alternative subgroup will try to maximize the Hamming similarity to this prediction.
+    def _optimize(self, X: pd.DataFrame, y: pd.Series,
+                  is_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
+                  is_instance_in_orig_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
+        is_alternative = is_instance_in_orig_box is not None
 
         # Define "speaking" names for certain constants in the optimization problem:
         n_instances = X.shape[0]
@@ -246,21 +274,30 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         lb_vars = [z3.Real(f'lb_{j}') for j in range(n_features)]
         ub_vars = [z3.Real(f'ub_{j}') for j in range(n_features)]
         is_instance_in_box_vars = [z3.Bool(f'x_{i}') for i in range(n_instances)]
+        is_feature_used_vars = [z3.Bool(f'f_{j}') for j in range(n_features)]
 
-        # Define auxiliary expressions for use in objective and potentially even constraints
-        # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
-        n_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var in is_instance_in_box_vars])
-        n_pos_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var, target
-                                         in zip(is_instance_in_box_vars, y) if target == 1])
-
-        # Define optimizer and objective (WRAcc):
+        # Define optimizer and objective:
         optimizer = z3.Optimize()
         if self._timeout is not None:
             # engine: see https://stackoverflow.com/questions/35203432/z3-minimization-and-timeout
             optimizer.set('maxsat_engine', 'wmax')
             optimizer.set('timeout', round(self._timeout * 1000))  # int, measured in milliseconds
-        optimizer.maximize(n_pos_instances_in_box / n_instances -
-                           n_instances_in_box * n_pos_instances / (n_instances ** 2))
+        if is_alternative:
+            # Optimize Hamming similarity to previous instance-in-box values, normalized by total
+            # number of instances ("* 1.0" enforces float operations (else int)):
+            objective = optimizer.maximize(z3.Sum([
+                var if val else z3.Not(var) for var, val
+                in zip(is_instance_in_box_vars, is_instance_in_orig_box)]) * 1.0 / n_instances)
+        else:
+            # Optimize WRAcc; define two auxiliary expressions first, which could also be variables
+            # bound by "==" constraints (roughly same optimizer performance):
+            n_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0)
+                                         for box_var in is_instance_in_box_vars])
+            n_pos_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var, target
+                                             in zip(is_instance_in_box_vars, y) if target == 1])
+            objective = optimizer.maximize(
+                n_pos_instances_in_box / n_instances -
+                n_instances_in_box * n_pos_instances / (n_instances ** 2))
 
         # Define constraints:
         # (1) Identify for each instance if it is in the subgroup's box or not
@@ -275,14 +312,28 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
 
         # (3) Limit number of features used in the box (i.e., where bounds exclude instances)
         if self._k is not None:
-            optimizer.add(z3.Sum([z3.If(z3.Or(lb_vars[j] > feature_minima[j],
-                                              ub_vars[j] < feature_maxima[j]), 1, 0)
-                                  for j in range(n_features)]) <= self._k)
+            for j in range(n_features):
+                optimizer.add(is_feature_used_vars[j] == z3.Or(lb_vars[j] > feature_minima[j],
+                                                               ub_vars[j] < feature_maxima[j]))
+            optimizer.add(z3.Sum([is_feature_used for is_feature_used in is_feature_used_vars])
+                          <= self._k)
+        # (4) Make alternatives use a certain number of new features (not used in other subgroups)
+        if is_alternative:
+            for is_feature_used_values in is_feature_used_list:
+                optimizer.add(z3.Sum([is_feature_used_vars[j] for j in range(n_features)
+                                      if not is_feature_used_values[j]]) >= self._tau_abs)
 
-        # Optimize and store/return results:
+        # Optimize:
         start_time = time.process_time()
         optimization_status = optimizer.check()
         end_time = time.process_time()
+
+        # Prepare and return results:
+        if objective.value().is_int():  # type IntNumRef
+            objective_value = float(objective.value().as_long())
+        else:  # type RatNumRef
+            objective_value = float(objective.value().numerator_as_long() /
+                                    objective.value().denominator_as_long())
         # To avoid potential numeric issues when extracting values of real variables, use actual
         # feature values of instances in box as bounds (also makes box tight around instances).
         # If bounds do not exclude any instances (LB == min or UB == max) or if no valid model was
@@ -294,7 +345,66 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         self._box_ubs = X.iloc[is_instance_in_box].max().fillna(float('inf'))
         self._box_ubs[self._box_ubs == feature_maxima] = float('inf')
         return {'optimization_status': str(optimization_status),
-                'optimization_time': end_time - start_time}
+                'optimization_time': end_time - start_time,
+                'objective_value': objective_value}
+
+    # Model and optimize subgroup discovery with Z3. Return meta-data about the fitting process
+    # (see superclass for more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        # Dispatch to another, more general routine (which can also find alternative subgroup
+        # descriptions; here, consistent to fit() in other classes, only one subgroup searched):
+        result = self._optimize(X=X, y=y, is_feature_used_list=None, is_instance_in_orig_box=None)
+        # Only return the data also returned by fit() routines in other subgroup-discovery classes
+        return {key: result[key] for key in ['optimization_status', 'optimization_time']}
+
+    # Trains, predicts, and evaluates subgroup discovery multiple times on a train-test split of a
+    # dataset. Each of the "self._a" alternative subgroup descriptions needs to use at least
+    # "self._tau_abs" new features compared to the original subgroup (which is searched first).
+    # The original subgroup optimizes WRAcc, all subsequent subgroups optimize Hamming similarity
+    # to the original one.
+    # Returns a data frame with evaluation metrics, each row corresponding to a subgroup.
+    def search_alternative_descriptions(self, X_train: pd.DataFrame, y_train: pd.Series,
+                                        X_test: pd.DataFrame, y_test: pd.Series) -> pd.DataFrame:
+        is_feature_used_list = []  # i-th entry: are features used in i-th subgroup? (List[bool])
+        is_instance_in_orig_box = None  # is instance in 0-th box? (List[Bool])
+        results = []
+        for i in range(self._a + 1):
+            start_time = time.process_time()
+            if i == 0:  # orignal subgroup, whose prediction should be replicated by alternatives
+                result = self._optimize(X=X_train, y=y_train)  # dict with evaluation metrics
+            else:
+                result = self._optimize(X=X_train, y=y_train,
+                                        is_feature_used_list=is_feature_used_list,
+                                        is_instance_in_orig_box=is_instance_in_orig_box)
+            end_time = time.process_time()
+            y_pred_train = self.predict(X=X_train)
+            if i == 0:
+                is_instance_in_orig_box = y_pred_train.astype(bool).to_list()
+                result['objective_value'] = 1  # similarity to 0-th subgroup description
+            is_feature_used_list.append(((self._box_lbs != float('-inf')) |
+                                         (self._box_ubs != float('inf'))).to_list())
+            result['fitting_time'] = end_time - start_time
+            result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
+            result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
+            result['alt.hamming'] = result['objective_value']
+            result['alt.jaccard'] = jaccard(set_1_indicators=is_instance_in_orig_box,
+                                            set_2_indicators=y_pred_train)
+            result['alt.number'] = i
+            del result['objective_value']  # was renamed
+            results.append(result)
+        return pd.DataFrame(results)
+
+    # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
+    # Returns a data frame with evaluation metrics. If the fields for alternatives are set ("_a"
+    # and "_tau_abs"), multiple subgroup descriptions are found (each constituting a row in the
+    # results), else only one (as is the default for our subgroup-discovery classes).
+    def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
+                 y_test: pd.Series) -> pd.DataFrame:
+        if (self._a is not None) and (self._tau_abs is not None):
+            return self.search_alternative_descriptions(X_train=X_train, y_train=y_train,
+                                                        X_test=X_test, y_test=y_test)
+        else:
+            return super().evaluate(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
 
 
 class MORBSubgroupDiscoverer(SubgroupDiscoverer):

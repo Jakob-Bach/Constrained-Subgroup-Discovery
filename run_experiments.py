@@ -84,14 +84,14 @@ def evaluate_experimental_task(
         X_test = X.iloc[test_idx]
         y_test = y.iloc[test_idx]
         result = subgroup_discoverer.evaluate(X_train=X_train, y_train=y_train,
-                                              X_test=X_test, y_test=y_test)
+                                              X_test=X_test, y_test=y_test)  # returns DataFrame
         result['dataset_name'] = dataset_name
         result['split_idx'] = split_idx
         result['sd_name'] = sd_name
         for key, value in sd_args.items():  # save all hyperparameter values
             result[f'param.{key}'] = value
         results.append(result)
-    results = pd.DataFrame(results)
+    results = pd.concat(results)
     data_handling.save_results(results=results, directory=results_dir, dataset_name=dataset_name,
                                split_idx=split_idx, sd_name=sd_name)
     return results
