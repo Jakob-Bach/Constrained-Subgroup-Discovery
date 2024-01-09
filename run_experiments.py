@@ -23,18 +23,25 @@ import sd
 
 # Different components of the experimental design.
 N_FOLDS = 5  # cross-validation
-SOLVER_TIMEOUTS = [1, 10, 60, 600, 3600]  # in seconds
-CARDINALITIES = [1, 2, 3, 4, 5, 10, None]  # maximum number of features used in subgroup
+SOLVER_TIMEOUTS = [2 ** x for x in range(12)]  # in seconds
+CARDINALITIES = [1, 2, 3, 4, 5, None]  # maximum number of features used in subgroup
+ALT_CARDINALITIES = [3]  # cardinalities for which alternatives should be searched
+ALT_NUMBER = 5  # number of alternatives if alteratives should be searched
 
 
 # Define a list of subgroup-discovery methods, each comprising a subgroup-discovery method and a
 # list of (dictionaries containing) hyperparameter combinations used to initialize the method.
 def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[str, Any]]]]:
     card_args = [{'k': k} for k in CARDINALITIES]
+    smt_args = []
+    for timeout, k in itertools.product(SOLVER_TIMEOUTS, CARDINALITIES):
+        if (k in ALT_CARDINALITIES) and timeout == max(SOLVER_TIMEOUTS):
+            for tau_abs in range(1, k + 1):
+                smt_args.append({'timeout': timeout, 'k': k, 'a': ALT_NUMBER, 'tau_abs': tau_abs})
+        else:
+            smt_args.append({'timeout': timeout, 'k': k})
     return [
-        {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer,
-         'sd_args_list': [{'timeout': timeout, 'k': k}
-                          for timeout in SOLVER_TIMEOUTS for k in CARDINALITIES]},
+        {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer, 'sd_args_list': smt_args},
         {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
