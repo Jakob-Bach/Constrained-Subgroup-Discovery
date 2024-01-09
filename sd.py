@@ -252,16 +252,16 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     # subgroup description (if the optional arguments are passed) by optimizing normalized Hamming
     # similarity to an existing subgroup.
     # Return meta-data about the optimization process, similar to fit().
-    # - "is_feature_used_list": for each existing subgroup and each feature, indicate if used.
+    # - "was_feature_used_list": for each existing subgroup and each feature, indicate if used.
     #   An alternative subgroup will use at least "self._tau_abs" new features compared to each
     #   existing subgroup.
-    # - "is_instance_in_orig_box": for each instance, indicate if in existing subgroup.
+    # - "was_instance_in_box": for each instance, indicate if in existing subgroup.
     #   An alternative subgroup will try to maximize the Hamming similarity to this prediction.
     def _optimize(self, X: pd.DataFrame, y: pd.Series,
-                  is_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
-                  is_instance_in_orig_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
+                  was_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
+                  was_instance_in_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
-        is_alternative = is_instance_in_orig_box is not None
+        is_alternative = was_instance_in_box is not None
 
         # Define "speaking" names for certain constants in the optimization problem:
         n_instances = X.shape[0]
@@ -287,7 +287,7 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
             # number of instances ("* 1.0" enforces float operations (else int)):
             objective = optimizer.maximize(z3.Sum([
                 var if val else z3.Not(var) for var, val
-                in zip(is_instance_in_box_vars, is_instance_in_orig_box)]) * 1.0 / n_instances)
+                in zip(is_instance_in_box_vars, was_instance_in_box)]) * 1.0 / n_instances)
         else:
             # Optimize WRAcc; define two auxiliary expressions first, which could also be variables
             # bound by "==" constraints (roughly same optimizer performance):
@@ -319,9 +319,9 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
                           <= self._k)
         # (4) Make alternatives use a certain number of new features (not used in other subgroups)
         if is_alternative:
-            for is_feature_used_values in is_feature_used_list:
+            for was_feature_used in was_feature_used_list:
                 optimizer.add(z3.Sum([is_feature_used_vars[j] for j in range(n_features)
-                                      if not is_feature_used_values[j]]) >= self._tau_abs)
+                                      if not was_feature_used[j]]) >= self._tau_abs)
 
         # Optimize:
         start_time = time.process_time()
@@ -353,7 +353,7 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         # Dispatch to another, more general routine (which can also find alternative subgroup
         # descriptions; here, consistent to fit() in other classes, only one subgroup searched):
-        result = self._optimize(X=X, y=y, is_feature_used_list=None, is_instance_in_orig_box=None)
+        result = self._optimize(X=X, y=y, was_feature_used_list=None, was_instance_in_box=None)
         # Only return the data also returned by fit() routines in other subgroup-discovery classes
         return {key: result[key] for key in ['optimization_status', 'optimization_time']}
 
@@ -365,8 +365,8 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     # Returns a data frame with evaluation metrics, each row corresponding to a subgroup.
     def search_alternative_descriptions(self, X_train: pd.DataFrame, y_train: pd.Series,
                                         X_test: pd.DataFrame, y_test: pd.Series) -> pd.DataFrame:
-        is_feature_used_list = []  # i-th entry: are features used in i-th subgroup? (List[bool])
-        is_instance_in_orig_box = None  # is instance in 0-th box? (List[Bool])
+        was_feature_used_list = []  # i-th entry: are features used in i-th subgroup? (List[bool])
+        was_instance_in_box = None  # is instance in 0-th box? (List[Bool])
         results = []
         for i in range(self._a + 1):
             start_time = time.process_time()
@@ -374,20 +374,20 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
                 result = self._optimize(X=X_train, y=y_train)  # dict with evaluation metrics
             else:
                 result = self._optimize(X=X_train, y=y_train,
-                                        is_feature_used_list=is_feature_used_list,
-                                        is_instance_in_orig_box=is_instance_in_orig_box)
+                                        was_feature_used_list=was_feature_used_list,
+                                        was_instance_in_box=was_instance_in_box)
             end_time = time.process_time()
             y_pred_train = self.predict(X=X_train)
             if i == 0:
-                is_instance_in_orig_box = y_pred_train.astype(bool).to_list()
+                was_instance_in_box = y_pred_train.astype(bool).to_list()
                 result['objective_value'] = 1  # similarity to 0-th subgroup description
-            is_feature_used_list.append(((self._box_lbs != float('-inf')) |
-                                         (self._box_ubs != float('inf'))).to_list())
+            was_feature_used_list.append(((self._box_lbs != float('-inf')) |
+                                          (self._box_ubs != float('inf'))).to_list())
             result['fitting_time'] = end_time - start_time
             result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
             result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
             result['alt.hamming'] = result['objective_value']
-            result['alt.jaccard'] = jaccard(set_1_indicators=is_instance_in_orig_box,
+            result['alt.jaccard'] = jaccard(set_1_indicators=was_instance_in_box,
                                             set_2_indicators=y_pred_train)
             result['alt.number'] = i
             del result['objective_value']  # was renamed
