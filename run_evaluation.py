@@ -18,6 +18,20 @@ import data_handling
 plt.rcParams['font.family'] = 'Arial'
 
 
+# Sum the number of unique values over all features in a dataset.
+def sum_unique_values(dataset_name: str, data_dir: pathlib.Path) -> int:
+    X, _ = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
+    return X.nunique().sum()
+
+
+# Determine the maximum WRAcc for a datset, which depends on the class imbalance. For binary
+# classification, it corresponds to the product of the two relative class frequencies.
+def wracc_max(dataset_name: str, data_dir: pathlib.Path) -> float:
+    _, y = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
+    frac_positive = y.sum() / len(y)
+    return frac_positive * (1 - frac_positive)
+
+
 # Main-routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
 # and some dataset information from "data_dir". Save plots to the "plot_dir". Print some statistics
 # to the console.
@@ -31,6 +45,15 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print('The plot directory is not empty. Files might be overwritten but not deleted.')
 
     results = data_handling.load_results(directory=results_dir)
+    dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
+
+    # Compute maximum WRAcc (depending on dataset's class imbalance) and use it to normalize WRAcc:
+    dataset_overview['max_wracc'] = dataset_overview['dataset'].apply(wracc_max, data_dir=data_dir)
+    dataset_overview.rename(columns={'dataset': 'dataset_name'}, inplace=True)
+    results = results.merge(dataset_overview[['dataset_name', 'max_wracc']])
+    results[['train_wracc', 'test_wracc']] = results[['train_wracc', 'test_wracc']].div(
+        results['max_wracc'], axis='index')  # divide each column separately (instead of each row)
+    results.drop(columns='max_wracc', inplace=True)
 
     # Define column list for evaluation:
     evaluation_metrics = ['optimization_time', 'fitting_time', 'train_wracc', 'test_wracc']
@@ -87,16 +110,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results.groupby('sd_name')['time_fit_opt_diff'].describe().transpose().round(2))
 
     print('\nHow is the runtime Spearman-correlated to dataset size?')
-    dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
-    dataset_overview = dataset_overview[['dataset', 'n_instances', 'n_features']]
-    print_results = dataset_overview.rename(columns={'n_instances': 'm', 'n_features': 'n'})
+    print_results = dataset_overview[['dataset_name', 'n_instances', 'n_features']].rename(
+        columns={'n_instances': 'm', 'n_features': 'n'})
     print_results['n*m'] = print_results['n'] * print_results['m']
-    print_results['sum_unique_values'] = print_results['dataset'].apply(
-        lambda dataset_name: data_handling.load_dataset(
-            dataset_name=dataset_name, directory=data_dir)[0].nunique().sum())  # 0 = "X", 1 = "y"
+    print_results['sum_unique_values'] = print_results['dataset_name'].apply(
+        sum_unique_values, data_dir=data_dir)
     print_results = print_results.merge(
-        eval_results[['dataset_name', 'sd_name', 'optimization_time', 'fitting_time']].rename(
-            columns={'dataset_name': 'dataset'})).drop(columns='dataset')
+        eval_results[['dataset_name', 'sd_name', 'optimization_time', 'fitting_time']]).drop(
+            columns='dataset_name')
     print(print_results.groupby('sd_name').corr(method='spearman').round(2))
 
     print('\n---- Timeout analysis ----')
