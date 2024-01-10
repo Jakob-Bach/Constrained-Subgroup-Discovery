@@ -207,6 +207,18 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             ['alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
                 index='alt.number', columns='param.tau_abs').round(3))
 
+    print('\nHow are the mean values of evaluation metrics (max-normalized per experimental',
+          'setting) distributed over the number of alternative and the dissimilarity threshold',
+          '(all datasets)?')
+    norm_metrics = ['train_wracc', 'test_wracc']
+    norm_group_cols = ['dataset_name', 'split_idx', 'param.tau_abs']
+    norm_results = eval_results[norm_group_cols + ['alt.number'] + norm_metrics].copy()
+    norm_results[norm_metrics] = norm_results.groupby(norm_group_cols)[norm_metrics].transform(
+        lambda x: x / x.max())
+    for metric in norm_metrics:
+        print(norm_results.groupby(['alt.number', 'param.tau_abs'])[metric].mean().reset_index(
+            ).pivot(index='alt.number', columns='param.tau_abs').round(3))
+
 
 # Parse some command-line arguments and run the main routine.
 if __name__ == '__main__':
