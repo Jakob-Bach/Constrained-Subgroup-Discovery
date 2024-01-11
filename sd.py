@@ -43,7 +43,7 @@ def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 def jaccard(set_1_indicators: Sequence[bool], set_2_indicators: Sequence[bool]) -> float:
     size_intersection = sum([x and y for x, y in zip(set_1_indicators, set_2_indicators)])
     size_union = sum([x or y for x, y in zip(set_1_indicators, set_2_indicators)])
-    return size_intersection / size_union
+    return size_intersection / size_union if size_union != 0 else float('nan')
 
 
 class SubgroupDiscoverer(metaclass=ABCMeta):
