@@ -15,21 +15,17 @@ import pandas as pd
 import z3
 
 
-# Computes the weighted relative accuracy (WRAcc) for two binary (bool or int) series.
-def wracc(y_true: pd.Series, y_pred: pd.Series) -> float:
-    assert len(y_true) == len(y_pred), "Prediction and ground truth need to have same length."
-    assert y_true.isin((0, 1, False, True)).all(), "Each ground-truth label needs to be binary."
-    assert y_pred.isin((0, 1, False, True)).all(), "Each predicted label needs to be binary."
-    n_true_pos = (y_true & y_pred).sum()
+# Computes the weighted relative accuracy (WRAcc) for two binary (bool or int) sequences (may also
+# be pd.Series or np.array) indicating class labels and predictions.
+def wracc(y_true: Sequence[bool], y_pred: Sequence[bool]) -> float:
+    n_true_pos = sum(y_t and y_p for y_t, y_p in zip(y_true, y_pred))
     n_instances = len(y_true)
-    n_actual_pos = y_true.sum()
-    n_pred_pos = y_pred.sum()
+    n_actual_pos = sum(y_true)
+    n_pred_pos = sum(y_pred)
     return n_true_pos / n_instances - n_pred_pos * n_actual_pos / (n_instances ** 2)
 
 
 # Same functionality as wracc(), but faster and intended for binary (bool or int) numpy arrays.
-# Leaving out assertions cuts the execution time by roughly 50 % compared to the "slow" method,
-# using numpy arrays instead of pandas Series by roughly an order of magnitude (not sure why).
 # This fast method should be preferred if called often as a subroutine.
 def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     n_true_pos = np.count_nonzero(y_true & y_pred)
@@ -39,11 +35,33 @@ def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return n_true_pos / n_instances - n_pred_pos * n_actual_pos / (n_instances ** 2)
 
 
-# Computes the Jaccard similarity between two binary sequences indicating set membership.
+# Computes the Jaccard similarity between two binary (bool or int) sequences (may also be pd.Series
+# or np.array) indicating set membership.
 def jaccard(set_1_indicators: Sequence[bool], set_2_indicators: Sequence[bool]) -> float:
-    size_intersection = sum([x and y for x, y in zip(set_1_indicators, set_2_indicators)])
-    size_union = sum([x or y for x, y in zip(set_1_indicators, set_2_indicators)])
+    size_intersection = sum(i_1 and i_2 for i_1, i_2 in zip(set_1_indicators, set_2_indicators))
+    size_union = sum(i_1 or i_2 for i_1, i_2 in zip(set_1_indicators, set_2_indicators))
     return size_intersection / size_union if size_union != 0 else float('nan')
+
+
+# Same functionality as jaccard(), but faster and intended for binary (bool or int) numpy arrays.
+# This fast method should be preferred if called often as a subroutine.
+def jaccard_np(set_1_indicators: np.ndarray, set_2_indicators: np.ndarray) -> float:
+    size_intersection = np.count_nonzero(set_1_indicators & set_2_indicators)
+    size_union = np.count_nonzero(set_1_indicators | set_2_indicators)
+    return size_intersection / size_union if size_union != 0 else float('nan')
+
+
+# Computes the Hamming similarity between two sequences (may also be pd.Series or np.array),
+# normalized to [0, 1].
+def hamming(sequence_1: Sequence[Any], sequence_2: Sequence[Any]) -> float:
+    size_identical = sum(s_1 == s_2 for s_1, s_2 in zip(sequence_1, sequence_2))
+    return size_identical / len(sequence_1)
+
+
+# Same functionality as hamming(), but faster and intended for numpy arrays.
+def hamming_np(sequence_1: np.array, sequence_2: np.array) -> float:
+    size_identical = (sequence_1 == sequence_2).sum()
+    return size_identical / len(sequence_1)
 
 
 class SubgroupDiscoverer(metaclass=ABCMeta):
@@ -130,8 +148,7 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     # subgroup description (if the optional arguments are passed). Should update self's internal
     # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs").
     # Should Return meta-data about the optimization process, i.e., a dictionary with keys
-    # "optimization_time", "optimization_status", and "objective_value" (for the latter, objective
-    # function depends on whether original subgroup or alternative description is searched).
+    # "optimization_time" and "optimization_status" (like fit() does).
     # - "was_feature_used_list": for each existing subgroup and each feature, indicate if used.
     #   An alternative subgroup should use at least "self._tau_abs" new features compared to each
     #   existing subgroup.
@@ -148,9 +165,7 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         # Dispatch to another, more general routine (which can also find alternative subgroup
         # descriptions; here, consistent to fit() in other classes, only one subgroup searched):
-        result = self._optimize(X=X, y=y, was_feature_used_list=None, was_instance_in_box=None)
-        # Only return the data also returned by fit() routines in other subgroup-discovery classes
-        return {key: result[key] for key in ['optimization_status', 'optimization_time']}
+        return self._optimize(X=X, y=y, was_feature_used_list=None, was_instance_in_box=None)
 
     # Trains, predicts, and evaluates subgroup discovery multiple times on a train-test split of a
     # dataset. Each of the "self._a" alternative subgroup descriptions needs to use at least
@@ -175,17 +190,16 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
             y_pred_train = self.predict(X=X_train)
             if i == 0:
                 was_instance_in_box = y_pred_train.astype(bool).to_list()
-                result['objective_value'] = 1  # similarity to 0-th subgroup description
             was_feature_used_list.append(((self._box_lbs != float('-inf')) |
                                           (self._box_ubs != float('inf'))).to_list())
             result['fitting_time'] = end_time - start_time
             result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
             result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
-            result['alt.hamming'] = result['objective_value']
+            result['alt.hamming'] = hamming(sequence_1=was_instance_in_box,
+                                            sequence_2=y_pred_train)
             result['alt.jaccard'] = jaccard(set_1_indicators=was_instance_in_box,
                                             set_2_indicators=y_pred_train)
             result['alt.number'] = i
-            del result['objective_value']  # was renamed
             results.append(result)
         return pd.DataFrame(results)
 
@@ -381,7 +395,7 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         if is_alternative:
             # Optimize Hamming similarity to previous instance-in-box values, normalized by total
             # number of instances ("* 1.0" enforces float operations (else int)):
-            objective = optimizer.maximize(z3.Sum([
+            optimizer.maximize(z3.Sum([
                 var if val else z3.Not(var) for var, val
                 in zip(is_instance_in_box_vars, was_instance_in_box)]) * 1.0 / n_instances)
         else:
@@ -391,9 +405,8 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
                                          for box_var in is_instance_in_box_vars])
             n_pos_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var, target
                                              in zip(is_instance_in_box_vars, y) if target == 1])
-            objective = optimizer.maximize(
-                n_pos_instances_in_box / n_instances -
-                n_instances_in_box * n_pos_instances / (n_instances ** 2))
+            optimizer.maximize(n_pos_instances_in_box / n_instances -
+                               n_instances_in_box * n_pos_instances / (n_instances ** 2))
 
         # Define constraints:
         # (1) Identify for each instance if it is in the subgroup's box or not
@@ -425,11 +438,6 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         end_time = time.process_time()
 
         # Prepare and return results:
-        if objective.value().is_int():  # type IntNumRef
-            objective_value = float(objective.value().as_long())
-        else:  # type RatNumRef
-            objective_value = float(objective.value().numerator_as_long() /
-                                    objective.value().denominator_as_long())
         # To avoid potential numeric issues when extracting values of real variables, use actual
         # feature values of instances in box as bounds (also makes box tight around instances).
         # If lower or upper bounds do not exclude any instances or if no valid model was found
@@ -442,8 +450,7 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         self._box_ubs = X.iloc[is_instance_in_box].max()
         self._box_ubs.iloc[is_ub_unused] = float('inf')
         return {'optimization_status': str(optimization_status),
-                'optimization_time': end_time - start_time,
-                'objective_value': objective_value}
+                'optimization_time': end_time - start_time}
 
 
 class MORBSubgroupDiscoverer(SubgroupDiscoverer):
