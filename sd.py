@@ -50,7 +50,7 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
     """Subgroup-discovery method
 
     The abstract base class for subgroup discovery. Defines a method signature for fitting, which
-    needs to be overriden in subclasses, and a prediction method (similar to scikit-learn models).
+    needs to be overridden in subclasses, and a prediction method (similar to scikit-learn models).
     """
 
     # Initializes fields for lower bounds and upper bounds of the subgroup's box. These fields need
@@ -102,6 +102,104 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
         results['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
         # Convert dict into single-row DataFrame; subclasses may return multiple subgroups (= rows)
         return pd.DataFrame([results])
+
+
+class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
+    """Subgroup-discovery method supporting alternatives
+
+    The abstract base class for subgroup-discovery methods that cannot only find one (optimal)
+    subgroup but also alternative descriptions for the optimal one. Implements the (formerly
+    abstract) fit() method by dispatching to a new abstract optimization method, which should be
+    overridden to (based on the passed parameters) either find an orignal subgroup or alternative
+    descriptions. evaluate() is also overridden to either perform the evaluate() routine from the
+    superclass (fit and evaluate optimal subgroup) or search for optimal subgroup + alternative
+    descriptions, dispatching to a generic search routine that calls the new optimization method.
+    """
+
+    # Initialize fields.
+    # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
+    #   subgroup searched). Should only be used if "k" is set (else there may be no alternatives).
+    # - "tau_abs" is the number of new features in each alternative subgroup description compared
+    #   to the original subgroup description; should be set if and only if "a" is set.
+    def __init__(self, a: Optional[int] = None, tau_abs: Optional[int] = None):
+        super().__init__()
+        self._a = a
+        self._tau_abs = tau_abs
+
+    # Should either find original subgroup (if only "X" and "y" are passed) or an alternative
+    # subgroup description (if the optional arguments are passed). Should update self's internal
+    # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs").
+    # Should Return meta-data about the optimization process, i.e., a dictionary with keys
+    # "optimization_time", "optimization_status", and "objective_value" (for the latter, objective
+    # function depends on whether original subgroup or alternative description is searched).
+    # - "was_feature_used_list": for each existing subgroup and each feature, indicate if used.
+    #   An alternative subgroup should use at least "self._tau_abs" new features compared to each
+    #   existing subgroup.
+    # - "was_instance_in_box": for each instance, indicate if in existing subgroup.
+    #   An alternative subgroup should try to maximize the Hamming similarity to this prediction.
+    @abstractmethod
+    def _optimize(self, X: pd.DataFrame, y: pd.Series,
+                  was_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
+                  was_instance_in_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
+        raise NotImplementedError('Abstract method.')
+
+    # Run subgroup-discovery method. Return meta-data about the fitting process (see superclass for
+    # more details).
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
+        # Dispatch to another, more general routine (which can also find alternative subgroup
+        # descriptions; here, consistent to fit() in other classes, only one subgroup searched):
+        result = self._optimize(X=X, y=y, was_feature_used_list=None, was_instance_in_box=None)
+        # Only return the data also returned by fit() routines in other subgroup-discovery classes
+        return {key: result[key] for key in ['optimization_status', 'optimization_time']}
+
+    # Trains, predicts, and evaluates subgroup discovery multiple times on a train-test split of a
+    # dataset. Each of the "self._a" alternative subgroup descriptions needs to use at least
+    # "self._tau_abs" new features compared to the original subgroup (which is searched first).
+    # The original subgroup should optimize WRAcc (subject to implementation of "_optimize()"), all
+    # subsequent subgroups should optimize Hamming similarity to the original one.
+    # Returns a data frame with evaluation metrics, each row corresponding to a subgroup.
+    def search_alternative_descriptions(self, X_train: pd.DataFrame, y_train: pd.Series,
+                                        X_test: pd.DataFrame, y_test: pd.Series) -> pd.DataFrame:
+        was_feature_used_list = []  # i-th entry: are features used in i-th subgroup? (List[bool])
+        was_instance_in_box = None  # is instance in 0-th box? (List[Bool])
+        results = []
+        for i in range(self._a + 1):
+            start_time = time.process_time()
+            if i == 0:  # original subgroup, whose prediction should be replicated by alternatives
+                result = self._optimize(X=X_train, y=y_train)  # dict with evaluation metrics
+            else:
+                result = self._optimize(X=X_train, y=y_train,
+                                        was_feature_used_list=was_feature_used_list,
+                                        was_instance_in_box=was_instance_in_box)
+            end_time = time.process_time()
+            y_pred_train = self.predict(X=X_train)
+            if i == 0:
+                was_instance_in_box = y_pred_train.astype(bool).to_list()
+                result['objective_value'] = 1  # similarity to 0-th subgroup description
+            was_feature_used_list.append(((self._box_lbs != float('-inf')) |
+                                          (self._box_ubs != float('inf'))).to_list())
+            result['fitting_time'] = end_time - start_time
+            result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
+            result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
+            result['alt.hamming'] = result['objective_value']
+            result['alt.jaccard'] = jaccard(set_1_indicators=was_instance_in_box,
+                                            set_2_indicators=y_pred_train)
+            result['alt.number'] = i
+            del result['objective_value']  # was renamed
+            results.append(result)
+        return pd.DataFrame(results)
+
+    # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
+    # Returns a data frame with evaluation metrics. If the fields for alternatives are set ("_a"
+    # and "_tau_abs"), multiple subgroup descriptions are found (each constituting a row in the
+    # results), else only one (as is the default for the superclass).
+    def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
+                 y_test: pd.Series) -> pd.DataFrame:
+        if (self._a is not None) and (self._tau_abs is not None):
+            return self.search_alternative_descriptions(X_train=X_train, y_train=y_train,
+                                                        X_test=X_test, y_test=y_test)
+        else:
+            return super().evaluate(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
 
 
 class MIPSubgroupDiscoverer(SubgroupDiscoverer):
@@ -230,12 +328,11 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
                 'optimization_time': end_time - start_time}
 
 
-class SMTSubgroupDiscoverer(SubgroupDiscoverer):
+class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
     """SMT-based subgroup-discovery method
 
     White-box formulation of subgroup discovery as a Satisfiability Modulo Theories (SMT)
     optimization problem.
-    Cannot only find one subgroup but also alternative descriptions for the optimal one.
     """
 
     # Initialize fields.
@@ -247,21 +344,13 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
     #   to the original subgroup description; should be set if and only if "a" is set.
     def __init__(self, timeout: Optional[float] = None, k: Optional[int] = None,
                  a: Optional[int] = None, tau_abs: Optional[int] = None):
-        super().__init__()
+        super().__init__(a=a, tau_abs=tau_abs)
         self._timeout = timeout
         self._k = k
-        self._a = a
-        self._tau_abs = tau_abs
 
-    # Find original subgroup (if only "X" and "y" are passed) by optimizing WRAcc or an alternative
-    # subgroup description (if the optional arguments are passed) by optimizing normalized Hamming
-    # similarity to an existing subgroup.
-    # Return meta-data about the optimization process, similar to fit().
-    # - "was_feature_used_list": for each existing subgroup and each feature, indicate if used.
-    #   An alternative subgroup will use at least "self._tau_abs" new features compared to each
-    #   existing subgroup.
-    # - "was_instance_in_box": for each instance, indicate if in existing subgroup.
-    #   An alternative subgroup will try to maximize the Hamming similarity to this prediction.
+    # Model and optimize subgroup discovery with Z3. Either find original subgroup (if only "X" and
+    # "y" are passed) or an alternative subgroup description (if optional arguments are passed).
+    # Return meta-data about the optimization process (see superclass for details).
     def _optimize(self, X: pd.DataFrame, y: pd.Series,
                   was_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
                   was_instance_in_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
@@ -323,8 +412,7 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
             optimizer.add(is_feature_used_vars[j] == z3.Or(is_feature_used_lb_vars[j],
                                                            is_feature_used_ub_vars[j]))
         if self._k is not None:
-            optimizer.add(z3.Sum([is_feature_used for is_feature_used in is_feature_used_vars])
-                          <= self._k)
+            optimizer.add(z3.Sum(is_feature_used_vars) <= self._k)
         # (4) Make alternatives use a certain number of new features (not used in other subgroups)
         if is_alternative:
             for was_feature_used in was_feature_used_list:
@@ -356,64 +444,6 @@ class SMTSubgroupDiscoverer(SubgroupDiscoverer):
         return {'optimization_status': str(optimization_status),
                 'optimization_time': end_time - start_time,
                 'objective_value': objective_value}
-
-    # Model and optimize subgroup discovery with Z3. Return meta-data about the fitting process
-    # (see superclass for more details).
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
-        # Dispatch to another, more general routine (which can also find alternative subgroup
-        # descriptions; here, consistent to fit() in other classes, only one subgroup searched):
-        result = self._optimize(X=X, y=y, was_feature_used_list=None, was_instance_in_box=None)
-        # Only return the data also returned by fit() routines in other subgroup-discovery classes
-        return {key: result[key] for key in ['optimization_status', 'optimization_time']}
-
-    # Trains, predicts, and evaluates subgroup discovery multiple times on a train-test split of a
-    # dataset. Each of the "self._a" alternative subgroup descriptions needs to use at least
-    # "self._tau_abs" new features compared to the original subgroup (which is searched first).
-    # The original subgroup optimizes WRAcc, all subsequent subgroups optimize Hamming similarity
-    # to the original one.
-    # Returns a data frame with evaluation metrics, each row corresponding to a subgroup.
-    def search_alternative_descriptions(self, X_train: pd.DataFrame, y_train: pd.Series,
-                                        X_test: pd.DataFrame, y_test: pd.Series) -> pd.DataFrame:
-        was_feature_used_list = []  # i-th entry: are features used in i-th subgroup? (List[bool])
-        was_instance_in_box = None  # is instance in 0-th box? (List[Bool])
-        results = []
-        for i in range(self._a + 1):
-            start_time = time.process_time()
-            if i == 0:  # orignal subgroup, whose prediction should be replicated by alternatives
-                result = self._optimize(X=X_train, y=y_train)  # dict with evaluation metrics
-            else:
-                result = self._optimize(X=X_train, y=y_train,
-                                        was_feature_used_list=was_feature_used_list,
-                                        was_instance_in_box=was_instance_in_box)
-            end_time = time.process_time()
-            y_pred_train = self.predict(X=X_train)
-            if i == 0:
-                was_instance_in_box = y_pred_train.astype(bool).to_list()
-                result['objective_value'] = 1  # similarity to 0-th subgroup description
-            was_feature_used_list.append(((self._box_lbs != float('-inf')) |
-                                          (self._box_ubs != float('inf'))).to_list())
-            result['fitting_time'] = end_time - start_time
-            result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
-            result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
-            result['alt.hamming'] = result['objective_value']
-            result['alt.jaccard'] = jaccard(set_1_indicators=was_instance_in_box,
-                                            set_2_indicators=y_pred_train)
-            result['alt.number'] = i
-            del result['objective_value']  # was renamed
-            results.append(result)
-        return pd.DataFrame(results)
-
-    # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
-    # Returns a data frame with evaluation metrics. If the fields for alternatives are set ("_a"
-    # and "_tau_abs"), multiple subgroup descriptions are found (each constituting a row in the
-    # results), else only one (as is the default for our subgroup-discovery classes).
-    def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
-                 y_test: pd.Series) -> pd.DataFrame:
-        if (self._a is not None) and (self._tau_abs is not None):
-            return self.search_alternative_descriptions(X_train=X_train, y_train=y_train,
-                                                        X_test=X_test, y_test=y_test)
-        else:
-            return super().evaluate(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
 
 
 class MORBSubgroupDiscoverer(SubgroupDiscoverer):
