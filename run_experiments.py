@@ -40,13 +40,20 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
                 smt_args.append({'timeout': timeout, 'k': k, 'a': ALT_NUMBER, 'tau_abs': tau_abs})
         else:
             smt_args.append({'timeout': timeout, 'k': k})
+    beam_args = []
+    for k in CARDINALITIES:
+        if k in ALT_CARDINALITIES:
+            for tau_abs in range(1, k + 1):
+                beam_args.append({'k': k, 'a': ALT_NUMBER, 'tau_abs': tau_abs})
+        else:
+            beam_args.append({'k': k})
     return [
         {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer, 'sd_args_list': smt_args},
         {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'BI', 'sd_type': sd.BestIntervalSubgroupDiscoverer, 'sd_args_list': card_args},
-        {'sd_name': 'Beam', 'sd_type': sd.BeamSearchSubgroupDiscoverer, 'sd_args_list': card_args}
+        {'sd_name': 'Beam', 'sd_type': sd.BeamSearchSubgroupDiscoverer, 'sd_args_list': beam_args}
     ]
 
 
