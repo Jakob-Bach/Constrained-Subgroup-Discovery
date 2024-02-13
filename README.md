@@ -1,8 +1,8 @@
-# Optimal Subgroup Discovery
+# Constrained Subgroup Discovery
 
 This repository contains the code of the paper
 
-> Bach, Jakob. "Optimal Subgroup Discovery"
+> Bach, Jakob. "Constrained Subgroup Discovery"
 
 (The paper is not published yet.
 Once it's published, we'll add a link to it here.

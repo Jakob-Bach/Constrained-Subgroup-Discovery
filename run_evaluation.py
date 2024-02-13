@@ -129,7 +129,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                                 ['param.k', 'param.timeout', 'optimization_status']].copy()
     print_results = print_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
-    print(print_results.pivot(index='param.k', columns='param.timeout').applymap('{:.1%}'.format))
+    print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
 
     eval_results = results[(results['sd_name'] == 'SMT') & (results['param.k'] == max_k) &
                            results['alt.number'].isin([float('nan'), 0]) &
@@ -211,36 +211,36 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\nHow is the number of finished SMT tasks distributed over the number of alternative',
           'and the dissimilarity threshold?')
-    print(eval_results.groupby(['alt.number', 'param.tau_abs'])['optimization_status'].agg(
-        lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index().pivot(
-            index='alt.number', columns='param.tau_abs').applymap('{:.1%}'.format))
+    print(eval_results[eval_results['sd_name'] == 'SMT'].groupby(['alt.number', 'param.tau_abs'])[
+        'optimization_status'].agg(lambda x: (x == 'sat').sum() / len(x)).rename('').reset_index(
+            ).pivot(index='alt.number', columns='param.tau_abs').applymap('{:.1%}'.format))
 
     print('\nHow are the mean values of evaluation metrics distributed over the number of',
           'alternative and the dissimilarity threshold (all datasets)?')
     for metric in evaluation_metrics + ['wracc_train_test_diff'] + alt_evaluation_metrics:
-        print(eval_results.groupby(['alt.number', 'param.tau_abs'])[metric].mean().reset_index(
-            ).pivot(index='alt.number', columns='param.tau_abs').round(3))
+        print(eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean(
+            ).reset_index().pivot(index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
 
     print('\nHow are the mean values of evaluation metrics distributed over the number of',
           'alternative and the dissimilarity threshold (datasets without timeout)?')
     for metric in evaluation_metrics + ['wracc_train_test_diff'] + alt_evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
-            ['alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
-                index='alt.number', columns='param.tau_abs').round(3))
+            ['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
+                index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
 
     print('\nHow are the mean values of evaluation metrics (shifted to [0, 1] and max-normalized',
           'with quality of original subgroup) distributed over the number of alternative and the',
           'dissimilarity threshold (all datasets)?')
     norm_metrics = ['train_wracc', 'test_wracc']
-    norm_group_cols = ['dataset_name', 'split_idx', 'param.tau_abs']
+    norm_group_cols = ['dataset_name', 'split_idx', 'sd_name', 'param.tau_abs']
     norm_results = eval_results[norm_group_cols + ['alt.number'] + norm_metrics].copy()
     norm_results[norm_metrics] = (norm_results[norm_metrics] + 1) / 2  # from [-1, 1] to [0, 1]
     assert norm_results.groupby(norm_group_cols)['alt.number'].is_monotonic_increasing.all()
     norm_results[norm_metrics] = norm_results.groupby(norm_group_cols)[norm_metrics].transform(
         lambda x: x / x.iloc[0])  # original subgroup is 1st row in each group (see assertion)
     for metric in norm_metrics:
-        print(norm_results.groupby(['alt.number', 'param.tau_abs'])[metric].mean().reset_index(
-            ).pivot(index='alt.number', columns='param.tau_abs').round(3))
+        print(norm_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean(
+            ).reset_index().pivot(index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
 
 
 # Parse some command-line arguments and run the main routine.
