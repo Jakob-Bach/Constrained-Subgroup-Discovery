@@ -36,7 +36,141 @@ Four of the code files are directly related to our experiments (see below for de
 
 ## Demo
 
+Currently, we provide seven subgroup-discovery methods as classes in `sd.py`:
+
+- exact optimization: `MIPSubgroupDiscoverer`, `SMTSubgroupDiscoverer`
+- heuristics: `BeamSearchSubgroupDiscoverer`, `BestIntervalSubgroupDiscoverer`, `PRIMSubgroupDiscoverer`
+- baselines: `MORBSubgroupDiscoverer`, `RandomSubgroupDiscoverer`
+
+The heuristics are from literature or adaptations from other packages, while we conceived the remaining methods.
+
+Using a subgroup-discovery method from `sd.py` is similar to working with prediction models from `scikit-learn`.
+In particular, all subgroup-discovery methods are implemented as subclasses of `SubgroupDiscoverer` and provide the following functionality:
+
+- `fit(X, y)` and `predict(X)`, as in `scikit-learn`, working with `pandas.DataFrame` and `pandas.Series`
+- `evaluate(X_train, y_train, X_test, y_test)`, which combines fitting and prediction on a train-test split of a dataset
+- `get_box_lbs()` and `get_box_ubs()`, which return the lower and upper bounds on features for the subgroup (as `pandas.Series`)
+
+The actual subgroup discovery occurs during fitting.
+The passed dataset has to be purely numeric (categorical columns should be encoded) with a binary target,
+with class label `1` being the class of interest and `0` being the other class.
+Any parameters for the search have to be passed beforehand,
+i.e., when initializing the instance of the subgroup-discovery method.
+While some parameters are specific to the subgroup-discovery method,
+all existing methods have a parameter `k` to limit (upper bound) the number of features selected (restricted) in the subgroup.
+The prediction routine classifies data objects as belonging to the subgroup (= 1) or not (= 0).
+`sd.py` also contains functions to evaluate predictions (`wracc()`, `jaccard()`, and `hamming()`),
+but metrics for binary classification from `sklearn.metrics` should work as well.
+
+Here is a small example for initialization, fitting, prediction, and evaluation:
+
+```python
+import sd
+import sklearn.datasets
+import sklearn.model_selection
+
+X, y = sklearn.datasets.load_iris(as_frame=True, return_X_y=True)
+y = (y == 1).astype(int)  # binary classification (in original data, three classes)
+X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
+    X, y, train_size=0.8, random_state=25)
+
+model = sd.BeamSearchSubgroupDiscoverer(beam_width=10)
+model.fit(X=X_train, y=y_train)
+print('Train WRAcc:', round(sd.wracc(y_true=y_train, y_pred=model.predict(X=X_train)), 2))
+print('Test WRAcc:', round(sd.wracc(y_true=y_test, y_pred=model.predict(X=X_test)), 2))
+print('Lower bounds:', model.get_box_lbs().tolist())
+print('Upper bounds:', model.get_box_ubs().tolist())
+```
+
+This code snippet outputs:
+
+```
+Train WRAcc: 0.21
+Test WRAcc: 0.21
+Lower bounds: [-inf, -inf, 3.0, -inf]
+Upper bounds: [7.0, inf, 5.1, 1.7]
+```
+
+If a feature is not restricted regarding lower or upper bound, the corresponding bounds are infinite.
+
+Additionally, subgroup-discovery methods inheriting from `AlternativeSubgroupDiscoverer`
+(currenty only `BeamSearchSubgroupDiscoverer` and `SMTSubgroupDiscoverer`)
+can search alternative subgroup descriptions with the method `search_alternative_descriptions()`.
+Before starting this search, you should set `a` (number of alternatives) and
+`tau_abs` (number of previously selected features that must not be selected again) in the initializer.
+Also, we highly recommend to limit the number of selected features with the parameter `k` in the initializer,
+so there are still enough unselected features that may be used in the alternatives instead.
+
+```python
+import sd
+import sklearn.datasets
+import sklearn.model_selection
+
+X, y = sklearn.datasets.load_iris(as_frame=True, return_X_y=True)
+y = (y == 1).astype(int)  # binary classification (in original data, three classes)
+X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
+    X, y, train_size=0.8, random_state=25)
+
+model = sd.BeamSearchSubgroupDiscoverer(beam_width=10, k=2, tau_abs=1, a=4)
+search_results = model.search_alternative_descriptions(X_train=X_train, y_train=y_train,
+                                                       X_test=X_test, y_test=y_test)
+print(search_results.round(2).transpose())
+```
+
+This code snippet outputs:
+
+```
+optimization_status  None  None  None  None  None
+optimization_time    0.03  0.02  0.02  0.03  0.02
+fitting_time         0.03  0.03  0.02  0.03  0.03
+train_wracc          0.21  0.17  0.16   0.1   0.1
+test_wracc           0.21  0.17  0.17  0.13  0.11
+alt.hamming           1.0  0.94  0.92  0.81  0.76
+alt.jaccard           1.0  0.83  0.77   0.5  0.48
+alt.number              0     1     2     3     4
+```
+
+The result is a `pandas.DataFrame` with evaluation metrics.
+The first subgroup is the same as if using the conventional `fit()` routine.
+`optimization_status` only plays a role for exact (optimizer-based) subgroup-discovery methods.
+You can see that the similarity of alternative subgroup descriptions to the original subgroup
+(`alt.hamming` and `alt.jaccard`) decreases over the number of alternatives (`alt.number`),
+as does the Weighted Relative Accuracy (WRAcc) on the training set and test set.
+
 ## Developer Info
+
+If you want to add another subgroup-discovery method, make it a subclass of `SubgroupDiscoverer`.
+You need to override the `fit()` method such that it sets the fields `_box_lbs` and `_box_ubs`
+to contain the lower and upper bounds on features in the subgroup (as `pandas.Series`).
+If your subgroup-discovery method is not tailored towards a specific objective,
+you may use the top-level functions `wracc()` or `wracc_np()` from `sd.py` to guide the search
+(the former is slower but supports more data types, the latter is tailored to `numpy` arrays and faster).
+If `_box_lbs` and `_box_ubs` are set, `predict()` works automatically with these bounds and need not be overridden.
+To maintain full compatibility to all other subgroup-discovery methods,
+you may want to allow setting an upper bound on the number of selected features `k`
+during initialization and observing it during fitting.
+We propose to store `k` in a field called `_k`;
+however, it is not used in the methods of superclass `SubgroupDiscoverer`.
+All other parameters for the subgroup-discovery method should also be set in the initializer and stored in fields.
+Make sure to also call the initializer of the superclass when implementing the initializer of your class.
+
+If your subgroup-discovery method should also support the search for alternative subgroup descriptions,
+make it a subclass of `AbstractSubgroupDiscoverer` (which inherits from `SubgroupDiscoverer`).
+The search for alternatives and the fitting routine are already implemented there.
+In particular, `fit()` dispatches to the method `_optimize()`, which you need to override.
+The latter should both be able to
+- search for the original subgroup, optimizing WRAcc or another notion of subgroup quality
+- search for alternative subgroup descriptions by
+  - optimizing Hamming similarity (see top-level functions `hamming()` and `hamming_np` in `sd.py`)
+    to original subgroup (or another notion of subgroup similarity),
+  - having constraint that at least `tau_abs` features from each previous subgroup description need to be de-selected
+    (though not more features than actually were selected, to prevent infeasibilities)
+Your implementation of `_optimize()` has to switch the objective and add the constraints for alternatives.
+The method's parameters `was_feature_used_list` and `was_instance_in_box` tell you, if not `None`,
+that you should search for an alternative subgroup description; else, search for the original subgroup.
+Additionally, you should add parameters `a` and `tau_abs` in the initializer, storing them in the fields `_a` and `_tau_abs`.
+The latter two fields are used in `evaluate()` (to decide whether to search only for an original subgroup
+or also for alternative subgroup descriptions).
 
 ## Setup
 
