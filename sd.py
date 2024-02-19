@@ -78,9 +78,10 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
         self._box_ubs = None
 
     # Should run the subgroup-discovery method on the given data, i.e., update self's internal
-    # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs").
+    # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs";
+    # if a feature is unbounded, -/+ inf should be used as bounds).
     # Should return meta-data about the fitting process, i.e., a dictionary with keys
-    # "optimization_time" and "optimization_status".
+    # "objective_value", "optimization_time", and "optimization_status".
     @abstractmethod
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         raise NotImplementedError('Abstract method.')
@@ -92,6 +93,15 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
     # Returns the upper bounds of the subgroup's box.
     def get_box_ubs(self) -> pd.Series:
         return self._box_ubs
+
+    # Return binary sequence indicating for each feature if selected (restricted) in subgroup.
+    def is_feature_selected(self) -> Sequence[bool]:
+        return ((self.get_box_lbs() != float('-inf')) |
+                (self.get_box_ubs() != float('inf'))).to_list()
+
+    # Return the indices of features selected (restricted) in subgroup.
+    def get_selected_feature_idxs(self) -> Sequence[int]:
+        return [j for j, is_selected in enumerate(self.is_feature_selected()) if is_selected]
 
     # Returns a series of predicted class labels (1 for instances in the box, else 0). Should only
     # be called after fit() since the box is undefined otherwise.
@@ -108,8 +118,8 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
         return prediction
 
     # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
-    # Returns a data frame with evaluation metrics. Each row represents a subgroup; unless this
-    # method is overridden, there will be only one row/subgroup.
+    # Returns a data frame with evaluation metrics and bounds on features. Each row represents a
+    # subgroup; unless this method is overridden, there will be only one row/subgroup.
     def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
                  y_test: pd.Series) -> pd.DataFrame:
         start_time = time.process_time()
@@ -118,6 +128,9 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
         results['fitting_time'] = end_time - start_time
         results['train_wracc'] = wracc(y_true=y_train, y_pred=self.predict(X=X_train))
         results['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
+        results['box_lbs'] = self.get_box_lbs().tolist()
+        results['box_ubs'] = self.get_box_ubs().tolist()
+        results['selected_feature_idxs'] = self.get_selected_feature_idxs()
         # Convert dict into single-row DataFrame; subclasses may return multiple subgroups (= rows)
         return pd.DataFrame([results])
 
@@ -149,7 +162,7 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     # subgroup description (if the optional arguments are passed). Should update self's internal
     # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs").
     # Should Return meta-data about the optimization process, i.e., a dictionary with keys
-    # "optimization_time" and "optimization_status" (like fit() does).
+    # "objective_value", "optimization_time", and "optimization_status" (like fit() does).
     # - "was_feature_selected_list": for each existing subgroup and each feature, indicate if
     #   selected. An alternative subgroup should *not* select at least "self._tau_abs" features
     #   from each existing subgroup.
@@ -191,8 +204,7 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
             y_pred_train = self.predict(X=X_train)
             if i == 0:
                 was_instance_in_box = y_pred_train.astype(bool).to_list()
-            was_feature_selected_list.append(((self._box_lbs != float('-inf')) |
-                                              (self._box_ubs != float('inf'))).to_list())
+            was_feature_selected_list.append(self.is_feature_selected())
             result['fitting_time'] = end_time - start_time
             result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
             result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
@@ -201,13 +213,16 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
             result['alt.jaccard'] = jaccard(set_1_indicators=was_instance_in_box,
                                             set_2_indicators=y_pred_train)
             result['alt.number'] = i
+            result['box_lbs'] = self.get_box_lbs().tolist()
+            result['box_ubs'] = self.get_box_ubs().tolist()
+            result['selected_feature_idxs'] = self.get_selected_feature_idxs()
             results.append(result)
         return pd.DataFrame(results)
 
     # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
-    # Returns a data frame with evaluation metrics. If the fields for alternatives are set ("_a"
-    # and "_tau_abs"), multiple subgroup descriptions are found (each constituting a row in the
-    # results), else only one (as is the default for the superclass).
+    # Returns a data frame with evaluation metrics and bounds on features. If the fields for
+    # alternatives are set ("_a" and "_tau_abs"), multiple subgroup descriptions are found (each
+    # constituting a row in the results), else only one (as is the default for the superclass).
     def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
                  y_test: pd.Series) -> pd.DataFrame:
         if (self._a is not None) and (self._tau_abs is not None):
@@ -336,10 +351,13 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
             self._box_lbs[is_lb_unused] = float('-inf')
             self._box_ubs = X.iloc[is_instance_in_box].max()
             self._box_ubs[is_ub_unused] = float('inf')
+            objective_value = model.Objective().Value()
         else:
             self._box_lbs = pd.Series([float('-inf')] * X.shape[1], index=X.columns)
             self._box_ubs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
-        return {'optimization_status': optimization_status,
+            objective_value = float('nan')
+        return {'objective_value': objective_value,
+                'optimization_status': optimization_status,
                 'optimization_time': end_time - start_time}
 
 
@@ -398,9 +416,9 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         if is_alternative:
             # Optimize Hamming similarity to previous instance-in-box values, normalized by total
             # number of instances ("* 1.0" enforces float operations (else int)):
-            optimizer.maximize(z3.Sum([
-                var if val else z3.Not(var) for var, val
-                in zip(is_instance_in_box_vars, was_instance_in_box)]) * 1.0 / n_instances)
+            objective = optimizer.maximize(
+                z3.Sum([var if val else z3.Not(var) for var, val
+                        in zip(is_instance_in_box_vars, was_instance_in_box)]) * 1.0 / n_instances)
         else:
             # Optimize WRAcc; define two auxiliary expressions first, which could also be variables
             # bound by "==" constraints (roughly same optimizer performance):
@@ -408,9 +426,9 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
                                          for box_var in is_instance_in_box_vars])
             n_pos_instances_in_box = z3.Sum([z3.If(box_var, 1.0, 0) for box_var, target
                                              in zip(is_instance_in_box_vars, y) if target == 1])
-            optimizer.maximize(n_pos_instances_in_box / n_instances -
-                               n_instances_in_box * n_pos_instances / (n_instances ** 2))
-
+            objective = optimizer.maximize(
+                n_pos_instances_in_box / n_instances -
+                n_instances_in_box * n_pos_instances / (n_instances ** 2))
         # Define constraints:
         # (1) Identify for each instance if it is in the subgroup's box or not
         for i in range(n_instances):
@@ -444,6 +462,11 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         end_time = time.process_time()
 
         # Prepare and return results:
+        if objective.value().is_int():  # type IntNumRef
+            objective_value = float(objective.value().as_long())
+        else:  # type RatNumRef
+            objective_value = float(objective.value().numerator_as_long() /
+                                    objective.value().denominator_as_long())
         # To avoid potential numeric issues when extracting values of real variables, use actual
         # feature values of instances in box as bounds (also makes box tight around instances).
         # If lower or upper bounds do not exclude any instances or if no valid model was found
@@ -455,7 +478,8 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         self._box_lbs.iloc[is_lb_unused] = float('-inf')
         self._box_ubs = X.iloc[is_instance_in_box].max()
         self._box_ubs.iloc[is_ub_unused] = float('inf')
-        return {'optimization_status': str(optimization_status),
+        return {'objective_value': objective_value,
+                'optimization_status': str(optimization_status),
                 'optimization_time': end_time - start_time}
 
 
@@ -493,7 +517,8 @@ class MORBSubgroupDiscoverer(SubgroupDiscoverer):
         # feature values in the given data, treat this value as unbounded
         self._box_lbs[self._box_lbs == X.min()] = float('-inf')
         self._box_ubs[self._box_ubs == X.max()] = float('inf')
-        return {'optimization_status': None,
+        return {'objective_value': None,  # picks bounds without computing an overall objective
+                'optimization_status': None,
                 'optimization_time': end_time - start_time}
 
 
@@ -547,7 +572,8 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
         self._box_ubs = pd.Series(opt_box_ubs, index=X.columns)
         self._box_lbs[self._box_lbs == X.min()] = float('-inf')
         self._box_ubs[self._box_ubs == X.max()] = float('inf')
-        return {'optimization_status': None,
+        return {'objective_value': opt_quality,
+                'optimization_status': None,
                 'optimization_time': end_time - start_time}
 
 
@@ -611,7 +637,8 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         self._box_ubs = pd.Series(opt_box_ubs, index=X.columns)
         self._box_lbs[self._box_lbs == X.min()] = float('-inf')
         self._box_ubs[self._box_ubs == X.max()] = float('inf')
-        return {'optimization_status': None,
+        return {'objective_value': opt_quality,
+                'optimization_status': None,
                 'optimization_time': end_time - start_time}
 
     # Determine which features may be selected for refining the current subgroup defined by bounds
@@ -830,15 +857,17 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
             beam_bounds = cand_bounds
             beam_is_in_box = cand_is_in_box
         # Select best subgroup out of beam:
-        max_quality_idx = np.where(cand_quality == cand_quality.max())[0][0]
+        opt_quality = cand_quality.max()
+        opt_quality_idx = np.where(cand_quality == opt_quality)[0][0]
         end_time = time.process_time()
         # Post-processing (as for optimizer-based solutions): if box extends to the limit of
         # feature values in the given data, treat this value as unbounded
-        self._box_lbs = pd.Series(beam_bounds[max_quality_idx, 0], index=X.columns)
-        self._box_ubs = pd.Series(beam_bounds[max_quality_idx, 1], index=X.columns)
+        self._box_lbs = pd.Series(beam_bounds[opt_quality_idx, 0], index=X.columns)
+        self._box_ubs = pd.Series(beam_bounds[opt_quality_idx, 1], index=X.columns)
         self._box_lbs[self._box_lbs == X.min()] = float('-inf')
         self._box_ubs[self._box_ubs == X.max()] = float('inf')
-        return {'optimization_status': None,
+        return {'objective_value': opt_quality,
+                'optimization_status': None,
                 'optimization_time': end_time - start_time}
 
 
@@ -965,13 +994,15 @@ class BestIntervalSubgroupDiscoverer(SubgroupDiscoverer):
             beam_is_in_box = cand_is_in_box
             beam_quality = cand_quality
         # Select best subgroup out of beam:
-        max_quality_idx = np.where(cand_quality == cand_quality.max())[0][0]
+        opt_quality = cand_quality.max()
+        opt_quality_idx = np.where(cand_quality == opt_quality)[0][0]
         end_time = time.process_time()
         # Post-processing (as for optimizer-based solutions): if box extends to the limit of
         # feature values in the given data, treat this value as unbounded
-        self._box_lbs = pd.Series(beam_bounds[max_quality_idx, 0], index=X.columns)
-        self._box_ubs = pd.Series(beam_bounds[max_quality_idx, 1], index=X.columns)
+        self._box_lbs = pd.Series(beam_bounds[opt_quality_idx, 0], index=X.columns)
+        self._box_ubs = pd.Series(beam_bounds[opt_quality_idx, 1], index=X.columns)
         self._box_lbs[self._box_lbs == X.min()] = float('-inf')
         self._box_ubs[self._box_ubs == X.max()] = float('inf')
-        return {'optimization_status': None,
+        return {'objective_value': opt_quality,
+                'optimization_status': None,
                 'optimization_time': end_time - start_time}

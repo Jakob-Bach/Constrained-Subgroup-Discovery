@@ -45,11 +45,12 @@ Currently, we provide seven subgroup-discovery methods as classes in `sd.py`:
 The heuristics are from literature or adaptations from other packages, while we conceived the remaining methods.
 
 Using a subgroup-discovery method from `sd.py` is similar to working with prediction models from `scikit-learn`.
-In particular, all subgroup-discovery methods are implemented as subclasses of `SubgroupDiscoverer` and provide the following functionality:
+All subgroup-discovery methods are implemented as subclasses of `SubgroupDiscoverer` and provide the following functionality:
 
 - `fit(X, y)` and `predict(X)`, as in `scikit-learn`, working with `pandas.DataFrame` and `pandas.Series`
 - `evaluate(X_train, y_train, X_test, y_test)`, which combines fitting and prediction on a train-test split of a dataset
 - `get_box_lbs()` and `get_box_ubs()`, which return the lower and upper bounds on features for the subgroup (as `pandas.Series`)
+- `is_feature_selected()` and `get_selected_feature_idxs()`, which provide informationon on selected (restricted) features in the subgroup (as lists)
 
 The actual subgroup discovery occurs during fitting.
 The passed dataset has to be purely numeric (categorical columns should be encoded) with a binary target,
@@ -75,23 +76,63 @@ X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
     X, y, train_size=0.8, random_state=25)
 
 model = sd.BeamSearchSubgroupDiscoverer(beam_width=10)
-model.fit(X=X_train, y=y_train)
+fitting_result = model.fit(X=X_train, y=y_train)
+print('Fitting result:', fitting_result)
 print('Train WRAcc:', round(sd.wracc(y_true=y_train, y_pred=model.predict(X=X_train)), 2))
 print('Test WRAcc:', round(sd.wracc(y_true=y_test, y_pred=model.predict(X=X_test)), 2))
 print('Lower bounds:', model.get_box_lbs().tolist())
 print('Upper bounds:', model.get_box_ubs().tolist())
 ```
 
-This code snippet outputs:
+The output of this code snippet looks like this (optimization time may vary):
 
 ```
+Fitting result: {'objective_value': 0.208125, 'optimization_status': None, 'optimization_time': 0.03125}
 Train WRAcc: 0.21
 Test WRAcc: 0.21
 Lower bounds: [-inf, -inf, 3.0, -inf]
 Upper bounds: [7.0, inf, 5.1, 1.7]
 ```
 
+Beam search optimizes Weighted Relative Accuracy (WRAcc), so objective value and train WRAcc (without rounding) are equal.
+The `optimization_status` only plays a role for exact (optimizer-based) subgroup-discovery methods.
 If a feature is not restricted regarding lower or upper bound, the corresponding bounds are infinite.
+
+`evaluate()` combines fitting, prediction, and evaluation:
+
+```
+import sd
+import sklearn.datasets
+import sklearn.model_selection
+
+X, y = sklearn.datasets.load_iris(as_frame=True, return_X_y=True)
+y = (y == 1).astype(int)  # binary classification (in original data, three classes)
+X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
+    X, y, train_size=0.8, random_state=25)
+
+model = sd.BeamSearchSubgroupDiscoverer(beam_width=10)
+evaluation_result = model.evaluate(X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test)
+print(evaluation_result.transpose())
+```
+
+The output is a `pandas.DataFrame` (optimization time and fitting time may vary):
+
+```
+                                             0
+objective_value                       0.208125
+optimization_status                       None
+optimization_time                      0.03125
+fitting_time                          0.046875
+train_wracc                           0.208125
+test_wracc                            0.212222
+box_lbs                [-inf, -inf, 3.0, -inf]
+box_ubs                   [7.0, inf, 5.1, 1.7]
+selected_feature_idxs                [0, 2, 3]
+```
+
+Fitting time may be higher than optimization time since it also includes preparing optimization and the results object.
+However, except for exact optimization (where entering all constraints into the optimizer may take some time),
+the difference between optimization time and fitting time should be marginal.
 
 Additionally, subgroup-discovery methods inheriting from `AlternativeSubgroupDiscoverer`
 (currenty only `BeamSearchSubgroupDiscoverer` and `SMTSubgroupDiscoverer`)
@@ -114,15 +155,16 @@ X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(
 model = sd.BeamSearchSubgroupDiscoverer(beam_width=10, k=2, tau_abs=1, a=4)
 search_results = model.search_alternative_descriptions(X_train=X_train, y_train=y_train,
                                                        X_test=X_test, y_test=y_test)
-print(search_results.round(2).transpose())
+print(search_results.drop(columns=['box_lbs', 'box_ubs', 'selected_feature_idxs']).round(2).transpose())
 ```
 
-This code snippet outputs:
+This code snippet outputs a `pandas.DataFrame` (optimization time and fitting time may vary):
 
 ```
+objective_value      0.21  0.94  0.92  0.81  0.76
 optimization_status  None  None  None  None  None
-optimization_time    0.03  0.02  0.02  0.03  0.02
-fitting_time         0.03  0.03  0.02  0.03  0.03
+optimization_time    0.02  0.03  0.02  0.03  0.02
+fitting_time         0.03  0.03  0.02  0.03  0.02
 train_wracc          0.21  0.17  0.16   0.1   0.1
 test_wracc           0.21  0.17  0.17  0.13  0.11
 alt.hamming           1.0  0.94  0.92  0.81  0.76
@@ -130,12 +172,11 @@ alt.jaccard           1.0  0.83  0.77   0.5  0.48
 alt.number              0     1     2     3     4
 ```
 
-The result is a `pandas.DataFrame` with evaluation metrics.
-The first subgroup is the same as if using the conventional `fit()` routine.
-`optimization_status` only plays a role for exact (optimizer-based) subgroup-discovery methods.
+The first subgroup (with an `alt.number` of `0`) is the same as if using the conventional `fit()` routine.
+The objective value corresponds to train WRAcc for this subgroup and Hamming similarity for the subsequent subgroups.
 You can see that the similarity of alternative subgroup descriptions to the original subgroup
 (`alt.hamming` and `alt.jaccard`) decreases over the number of alternatives (`alt.number`),
-as does the Weighted Relative Accuracy (WRAcc) on the training set and test set.
+as does the WRAcc on the training set and test set.
 
 ## Developer Info
 
