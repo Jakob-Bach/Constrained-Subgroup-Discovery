@@ -10,10 +10,10 @@ We'll link the experimental data, too.)
 
 This document provides:
 
-- An outline of the repo structure.
-- A short demo of the core functionality.
-- Guidelines for developers who want to modify or extend the code base.
-- Steps to reproduce the experiments, including setting up a virtual environment.
+- An outline of the [repo structure](#repo-structure).
+- A short [demo](#demo) of the core functionality.
+- [Guidelines for developers](#developer-info) who want to modify or extend the code base.
+- Steps for [setting up](#setup) a virtual environment and [reproducing](#reproducing-the-experiments) the experiments.
 
 ## Repo Structure
 
