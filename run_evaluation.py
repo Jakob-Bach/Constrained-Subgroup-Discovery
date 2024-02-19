@@ -69,6 +69,37 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     max_timeout = results['param.timeout'].max()
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
+    print('\n-------- Experimental Design --------')
+
+    print('\n------ Datasets ------')
+
+    print('\n## Table 1: Dataset overview ##\n')
+    dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
+    dataset_overview = dataset_overview[['dataset', 'n_instances', 'n_features']]
+    dataset_overview.rename(columns={'dataset': 'Dataset', 'n_instances': '$m$',
+                                     'n_features': '$n$'}, inplace=True)
+    dataset_overview['max-k'] = dataset_overview['Dataset'].apply(
+        lambda dataset_name: (results.loc[
+            (results['dataset_name'] == dataset_name) & (results['sd_name'] == 'SMT') &
+            (results['param.timeout'] == max_timeout) & (results['param.k'] == max_k) &
+            results['alt.number'].isna(), 'optimization_status'] != 'sat').any())
+    dataset_overview['any-k'] = dataset_overview['Dataset'].apply(
+        lambda dataset_name: (results.loc[
+            (results['dataset_name'] == dataset_name) & (results['sd_name'] == 'SMT') &
+            (results['param.timeout'] == max_timeout) &
+            results['alt.number'].isin([float('nan'), 0]) &
+            results['param.tau_abs'].isin([float('nan'), min_tau_abs]),
+            'optimization_status'] != 'sat').any())
+    dataset_overview.replace({False: 'No', True: 'Yes'}, inplace=True)
+    dataset_overview['Dataset'] = dataset_overview['Dataset'].str.replace('GAMETES', 'G')
+    dataset_overview['Dataset'] = dataset_overview['Dataset'].str.replace('_Epistasis', 'E')
+    dataset_overview['Dataset'] = dataset_overview['Dataset'].str.replace('_Heterogeneity', 'H')
+    dataset_overview.sort_values(by='Dataset', key=lambda x: x.str.lower(), inplace=True)
+    print(dataset_overview.style.format(escape='latex', precision=2).hide(axis='index').to_latex(
+        hrules=True))
+
+    print('\n-------- Evaluation --------')
+
     print('\n---- Default analysis (max timeout, max cardinality, no alternatives) ----')
 
     eval_results = results[results['param.timeout'].isin([float('nan'), max_timeout]) &
@@ -76,7 +107,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                            results['alt.number'].isin([float('nan'), 0]) &
                            results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
     no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
-        lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
+        lambda x: (x == 'sat').all())  # returns Series with bool values and DS names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
 
     print('\nHow are the mean values of evaluation metrics distributed (all datasets)?')
@@ -135,7 +166,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                            results['alt.number'].isin([float('nan'), 0]) &
                            results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
     all_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
-        lambda x: (x == 'unknown').all())  # returns Series with bool values and DS names as index
+        lambda x: (x != 'sat').all())  # returns Series with bool values and DS names as index
     all_timeout_datasets = all_timeout_datasets[all_timeout_datasets].index.to_list()
 
     print('\nHow is the mean value of evaluation metrics distributed over timeouts (with maximum',
@@ -162,7 +193,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                            results['alt.number'].isin([float('nan'), 0]) &
                            results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
     no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
-        lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
+        lambda x: (x == 'sat').all())  # returns Series with bool values and DS names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
 
     print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
@@ -206,7 +237,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     eval_results = results[results['alt.number'].notna()]
     no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
-        lambda x: (x != 'unknown').all())  # returns Series with bool values and DS names as index
+        lambda x: (x == 'sat').all())  # returns Series with bool values and DS names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
 
     print('\nHow is the number of finished SMT tasks distributed over the number of alternative',
