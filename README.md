@@ -99,7 +99,7 @@ can search alternative subgroup descriptions with the method `search_alternative
 Before starting this search, you should set `a` (number of alternatives) and
 `tau_abs` (number of previously selected features that must not be selected again) in the initializer.
 Also, we highly recommend to limit the number of selected features with the parameter `k` in the initializer,
-so there are still enough unselected features that may be used in the alternatives instead.
+so there are still enough unselected features that may be selected in the alternatives instead.
 
 ```python
 import sd
@@ -166,7 +166,7 @@ The latter should both be able to
   - having constraint that at least `tau_abs` features from each previous subgroup description need to be de-selected
     (though not more features than actually were selected, to prevent infeasibilities)
 Your implementation of `_optimize()` has to switch the objective and add the constraints for alternatives.
-The method's parameters `was_feature_used_list` and `was_instance_in_box` tell you, if not `None`,
+The method's parameters `was_feature_selected_list` and `was_instance_in_box` tell you, if not `None`,
 that you should search for an alternative subgroup description; else, search for the original subgroup.
 Additionally, you should add parameters `a` and `tau_abs` in the initializer, storing them in the fields `_a` and `_tau_abs`.
 The latter two fields are used in `evaluate()` (to decide whether to search only for an original subgroup

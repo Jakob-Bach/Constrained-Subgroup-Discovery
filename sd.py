@@ -136,9 +136,10 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
 
     # Initialize fields.
     # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
-    #   subgroup searched). Should only be used if "k" is set (else there may be no alternatives).
-    # - "tau_abs" is the number of features used in each existing subgroup description that should
-    #   *not* be used in alternative subgroup description; should be set if and only if "a" is set.
+    #   subgroup searched). Should only be set if "k" is set (else there may be no alternatives).
+    # - "tau_abs" is the number of features selected in each existing subgroup description that
+    #   should *not* be selected in alternative subgroup description; parameter should be set if
+    #   and only if "a" is set.
     def __init__(self, a: Optional[int] = None, tau_abs: Optional[int] = None):
         super().__init__()
         self._a = a
@@ -149,14 +150,14 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs").
     # Should Return meta-data about the optimization process, i.e., a dictionary with keys
     # "optimization_time" and "optimization_status" (like fit() does).
-    # - "was_feature_used_list": for each existing subgroup and each feature, indicate if used.
-    #   An alternative subgroup should *not* use at least "self._tau_abs" features from each
-    #   existing subgroup.
+    # - "was_feature_selected_list": for each existing subgroup and each feature, indicate if
+    #   selected. An alternative subgroup should *not* select at least "self._tau_abs" features
+    #   from each existing subgroup.
     # - "was_instance_in_box": for each instance, indicate if in existing subgroup.
     #   An alternative subgroup should try to maximize the Hamming similarity to this prediction.
     @abstractmethod
     def _optimize(self, X: pd.DataFrame, y: pd.Series,
-                  was_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
+                  was_feature_selected_list: Optional[Sequence[Sequence[bool]]] = None,
                   was_instance_in_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
         raise NotImplementedError('Abstract method.')
 
@@ -165,7 +166,7 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         # Dispatch to another, more general routine (which can also find alternative subgroup
         # descriptions; here, consistent to fit() in other classes, only one subgroup searched):
-        return self._optimize(X=X, y=y, was_feature_used_list=None, was_instance_in_box=None)
+        return self._optimize(X=X, y=y, was_feature_selected_list=None, was_instance_in_box=None)
 
     # Trains, predicts, and evaluates subgroup discovery multiple times on a train-test split of a
     # dataset. Each of the "self._a" alternative subgroup descriptions should *not* use at least
@@ -175,7 +176,7 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     # Returns a data frame with evaluation metrics, each row corresponding to a subgroup.
     def search_alternative_descriptions(self, X_train: pd.DataFrame, y_train: pd.Series,
                                         X_test: pd.DataFrame, y_test: pd.Series) -> pd.DataFrame:
-        was_feature_used_list = []  # i-th entry: are features used in i-th subgroup? (List[bool])
+        was_feature_selected_list = []  # i-th entry corresponds to i-th subgroup (List[bool])
         was_instance_in_box = None  # is instance in 0-th box? (List[Bool])
         results = []
         for i in range(self._a + 1):
@@ -184,14 +185,14 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
                 result = self._optimize(X=X_train, y=y_train)  # dict with evaluation metrics
             else:
                 result = self._optimize(X=X_train, y=y_train,
-                                        was_feature_used_list=was_feature_used_list,
+                                        was_feature_selected_list=was_feature_selected_list,
                                         was_instance_in_box=was_instance_in_box)
             end_time = time.process_time()
             y_pred_train = self.predict(X=X_train)
             if i == 0:
                 was_instance_in_box = y_pred_train.astype(bool).to_list()
-            was_feature_used_list.append(((self._box_lbs != float('-inf')) |
-                                          (self._box_ubs != float('inf'))).to_list())
+            was_feature_selected_list.append(((self._box_lbs != float('-inf')) |
+                                              (self._box_ubs != float('inf'))).to_list())
             result['fitting_time'] = end_time - start_time
             result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
             result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
@@ -224,7 +225,7 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
     """
 
     # Initialize fields. "timeout" should be indicated in seconds; if None, then no timeout.
-    # "k" is the maximum number of features used in the subgroup description.
+    # "k" is the maximum number of features that may be selected in the subgroup description.
     def __init__(self, k: Optional[int] = None, timeout: Optional[float] = None):
         super().__init__()
         self._k = k
@@ -260,9 +261,9 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
                                    for i in range(n_instances)]
         is_value_in_box_ub_vars = [[model.BoolVar(name=f'x_ub_{i}_{j}') for j in range(n_features)]
                                    for i in range(n_instances)]
-        is_feature_used_vars = [model.BoolVar(name=f'f_{j}') for j in range(n_features)]
-        is_feature_used_lb_vars = [model.BoolVar(name=f'f_lb_{j}') for j in range(n_features)]
-        is_feature_used_ub_vars = [model.BoolVar(name=f'f_ub_{j}') for j in range(n_features)]
+        is_feature_selected_vars = [model.BoolVar(name=f'f_{j}') for j in range(n_features)]
+        is_feature_selected_lb_vars = [model.BoolVar(name=f'f_lb_{j}') for j in range(n_features)]
+        is_feature_selected_ub_vars = [model.BoolVar(name=f'f_ub_{j}') for j in range(n_features)]
 
         # Define auxiliary expressions for use in objective and potentially even constraints
         # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
@@ -301,22 +302,22 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         # (2) Relationship between lower and upper bound for each feature
         for j in range(n_features):
             model.Add(lb_vars[j] <= ub_vars[j])
-        # (3) Limit number of features used in the box (i.e., where bounds exclude instances)
+        # (3) Limit number of features selected in the box (i.e., where bounds exclude instances)
         for j in range(n_features):
-            # There is any Instance i where Feature j's value not in box -> Feature j used
+            # There is any Instance i where Feature j's value not in box -> Feature j selected
             for i in range(n_instances):
-                model.Add(1 - is_value_in_box_lb_vars[i][j] <= is_feature_used_lb_vars[j])
-                model.Add(1 - is_value_in_box_ub_vars[i][j] <= is_feature_used_ub_vars[j])
-                model.Add(is_feature_used_lb_vars[j] <= is_feature_used_vars[j])
-                model.Add(is_feature_used_ub_vars[j] <= is_feature_used_vars[j])
-            # Feature j used -> there is any Instance i where Feature j's value not in box
+                model.Add(1 - is_value_in_box_lb_vars[i][j] <= is_feature_selected_lb_vars[j])
+                model.Add(1 - is_value_in_box_ub_vars[i][j] <= is_feature_selected_ub_vars[j])
+                model.Add(is_feature_selected_lb_vars[j] <= is_feature_selected_vars[j])
+                model.Add(is_feature_selected_ub_vars[j] <= is_feature_selected_vars[j])
+            # Feature j selected -> there is any Instance i where Feature j's value not in box
             model.Add(
-                is_feature_used_vars[j] <=
+                is_feature_selected_vars[j] <=
                 model.Sum(1 - is_value_in_box_lb_vars[i][j] for i in range(n_instances)) +
                 model.Sum(1 - is_value_in_box_ub_vars[i][j] for i in range(n_instances))
             )
         if self._k is not None:
-            model.Add(model.Sum(is_feature_used_vars) <= self._k)
+            model.Add(model.Sum(is_feature_selected_vars) <= self._k)
 
         # Optimize and store/return results:
         start_time = time.process_time()
@@ -329,8 +330,8 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
             # instances in box instead; nice side-effect: box is tight around instances instead of
             # extending into margin around them
             is_instance_in_box = [bool(var.solution_value()) for var in is_instance_in_box_vars]
-            is_lb_unused = [not bool(var.solution_value()) for var in is_feature_used_lb_vars]
-            is_ub_unused = [not bool(var.solution_value()) for var in is_feature_used_ub_vars]
+            is_lb_unused = [not bool(var.solution_value()) for var in is_feature_selected_lb_vars]
+            is_ub_unused = [not bool(var.solution_value()) for var in is_feature_selected_ub_vars]
             self._box_lbs = X.iloc[is_instance_in_box].min()
             self._box_lbs[is_lb_unused] = float('-inf')
             self._box_ubs = X.iloc[is_instance_in_box].max()
@@ -351,11 +352,13 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
 
     # Initialize fields.
     # - "timeout" should be indicated in seconds; if None, then no timeout.
-    # - "k" is the maximum number of features used in the subgroup description; if None, then all.
+    # - "k" is the maximum number of features that may selected in the subgroup description;
+    #   if None, then all.
     # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
-    #   subgroup searched). Should only be used if "k" is set (else there may be no alternatives).
-    # - "tau_abs" is the number of features used in each existing subgroup description that should
-    #   *not* be used in alternative subgroup description; should be set if and only if "a" is set.
+    #   subgroup searched). Should only be set if "k" is set (else there may be no alternatives).
+    # - "tau_abs" is the number of features selected in each existing subgroup description that
+    #   should *not* be selected in alternative subgroup description; parameter should be set if
+    #   and only if "a" is set.
     def __init__(self, timeout: Optional[float] = None, k: Optional[int] = None,
                  a: Optional[int] = None, tau_abs: Optional[int] = None):
         super().__init__(a=a, tau_abs=tau_abs)
@@ -366,7 +369,7 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
     # "y" are passed) or an alternative subgroup description (if optional arguments are passed).
     # Return meta-data about the optimization process (see superclass for details).
     def _optimize(self, X: pd.DataFrame, y: pd.Series,
-                  was_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
+                  was_feature_selected_list: Optional[Sequence[Sequence[bool]]] = None,
                   was_instance_in_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         is_alternative = was_instance_in_box is not None
@@ -382,9 +385,9 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         lb_vars = [z3.Real(f'lb_{j}') for j in range(n_features)]
         ub_vars = [z3.Real(f'ub_{j}') for j in range(n_features)]
         is_instance_in_box_vars = [z3.Bool(f'x_{i}') for i in range(n_instances)]
-        is_feature_used_vars = [z3.Bool(f'f_{j}') for j in range(n_features)]
-        is_feature_used_lb_vars = [z3.Bool(f'f_lb_{j}') for j in range(n_features)]
-        is_feature_used_ub_vars = [z3.Bool(f'f_ub_{j}') for j in range(n_features)]
+        is_feature_selected_vars = [z3.Bool(f'f_{j}') for j in range(n_features)]
+        is_feature_selected_lb_vars = [z3.Bool(f'f_lb_{j}') for j in range(n_features)]
+        is_feature_selected_ub_vars = [z3.Bool(f'f_ub_{j}') for j in range(n_features)]
 
         # Define optimizer and objective:
         optimizer = z3.Optimize()
@@ -418,20 +421,22 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         # (2) Relationship between lower and upper bound for each feature
         for j in range(n_features):
             optimizer.add(lb_vars[j] <= ub_vars[j])
-        # (3) Limit number of features used in the box (i.e., where bounds exclude instances)
+        # (3) Limit number of features selected in the box (i.e., where bounds exclude instances)
         for j in range(n_features):
-            optimizer.add(is_feature_used_lb_vars[j] == (lb_vars[j] > feature_minima[j]))
-            optimizer.add(is_feature_used_ub_vars[j] == (ub_vars[j] < feature_maxima[j]))
-            optimizer.add(is_feature_used_vars[j] == z3.Or(is_feature_used_lb_vars[j],
-                                                           is_feature_used_ub_vars[j]))
+            optimizer.add(is_feature_selected_lb_vars[j] == (lb_vars[j] > feature_minima[j]))
+            optimizer.add(is_feature_selected_ub_vars[j] == (ub_vars[j] < feature_maxima[j]))
+            optimizer.add(is_feature_selected_vars[j] == z3.Or(is_feature_selected_lb_vars[j],
+                                                               is_feature_selected_ub_vars[j]))
         if self._k is not None:
-            optimizer.add(z3.Sum(is_feature_used_vars) <= self._k)
-        # (4) Make alternatives not use a certain number of features used in other subgroups
+            optimizer.add(z3.Sum(is_feature_selected_vars) <= self._k)
+        # (4) Make alternatives not select a certain number of features selected in other subgroups
         if is_alternative:
-            for was_feature_used in was_feature_used_list:
-                k_used = sum(was_feature_used)  # may be smaller than prescribed "self._k"
-                optimizer.add(z3.Sum([z3.Not(is_feature_used_vars[j]) for j in range(n_features)
-                                      if was_feature_used[j]]) >= min(self._tau_abs, k_used))
+            for was_feature_selected in was_feature_selected_list:
+                k_used = sum(was_feature_selected)  # may be smaller than prescribed "self._k"
+                optimizer.add(
+                    z3.Sum([z3.Not(is_feature_selected_vars[j]) for j in range(n_features)
+                            if was_feature_selected[j]]) >= min(self._tau_abs, k_used)
+                )
 
         # Optimize:
         start_time = time.process_time()
@@ -444,8 +449,8 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         # If lower or upper bounds do not exclude any instances or if no valid model was found
         # (variables are None -> bool values are False), use -/+ inf as bounds.
         is_instance_in_box = [bool(optimizer.model()[var]) for var in is_instance_in_box_vars]
-        is_lb_unused = [not bool(optimizer.model()[var]) for var in is_feature_used_lb_vars]
-        is_ub_unused = [not bool(optimizer.model()[var]) for var in is_feature_used_ub_vars]
+        is_lb_unused = [not bool(optimizer.model()[var]) for var in is_feature_selected_lb_vars]
+        is_ub_unused = [not bool(optimizer.model()[var]) for var in is_feature_selected_ub_vars]
         self._box_lbs = X.iloc[is_instance_in_box].min()
         self._box_lbs.iloc[is_lb_unused] = float('-inf')
         self._box_ubs = X.iloc[is_instance_in_box].max()
@@ -462,7 +467,8 @@ class MORBSubgroupDiscoverer(SubgroupDiscoverer):
     optimal solution if a box exists that contains all positive and no negative instances.
     """
 
-    # Initialize fields. "k" is the maximum number of features used in the subgroup description.
+    # Initialize fields. "k" is the maximum number of features that may be selected in the subgroup
+    # description.
     def __init__(self, k: Optional[int] = None):
         super().__init__()
         self._k = k
@@ -497,7 +503,8 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
     Choose the bounds repeatedly uniformly random from the unique values of each feature.
     """
 
-    # Initialize fields. "k" is the maximum number of features used in the subgroup description.
+    # Initialize fields. "k" is the maximum number of features that may be selected in the subgroup
+    # description.
     def __init__(self, k: Optional[int] = None, n_repetitions: int = 1000):
         super().__init__()
         self._k = k
@@ -562,7 +569,7 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
     """
 
     # Initialize fields.
-    # - "k" is the maximum number of features used in the subgroup description.
+    # - "k" is the maximum number of features that may be selected in the subgroup description.
     # - "alpha" is the fraction of instances peeled off per iteration.
     # - "min_support" is the minimum fraction of instances in the box to continue peeling.
     def __init__(self, k: Optional[int] = None, alpha: float = 0.05, min_support: float = 0):
@@ -607,18 +614,18 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         return {'optimization_status': None,
                 'optimization_time': end_time - start_time}
 
-    # Determine which features may be used for refining the current subgroup defined by bounds on
-    # "X", considering a feature-cardinality constraint and removing constant features. Return
+    # Determine which features may be selected for refining the current subgroup defined by bounds
+    # on "X", considering a feature-cardinality constraint and removing constant features. Return
     # the (column) indices of permissible features.
     def _get_permissible_feature_idxs(self, X: np.array) -> Sequence[float]:
         permissible_feature_idxs = range(X.shape[1])
         if self._k is not None:
-            is_feature_used = ((X < self._box_lbs) | (X > self._box_ubs)).any(axis=0)
-            used_feature_idxs = np.where(is_feature_used)[0]
-            if len(used_feature_idxs) == self._k:
-                permissible_feature_idxs = used_feature_idxs
-            elif len(used_feature_idxs) > self._k:
-                raise RuntimeError('The algorithm used more features than allowed.')
+            is_feature_selected = ((X < self._box_lbs) | (X > self._box_ubs)).any(axis=0)
+            selected_feature_idxs = np.where(is_feature_selected)[0]
+            if len(selected_feature_idxs) == self._k:
+                permissible_feature_idxs = selected_feature_idxs
+            elif len(selected_feature_idxs) > self._k:
+                raise RuntimeError('The algorithm selected more features than allowed.')
         # Exclude features only having one unique value (i.e., all feature values equal first one):
         permissible_feature_idxs = [j for j in permissible_feature_idxs if (X[:, j] != X[0, j]).any()]
         return permissible_feature_idxs
@@ -688,53 +695,56 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
     """
 
     # Initialize fields.
-    # - "k" is the maximum number of features used in the subgroup description.
+    # - "k" is the maximum number of features that may be selected in the subgroup description.
     # - "beam_width" is the number of candidate subgroups kept per iteration (lower == faster but
     #   potentially lower quality).
     # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
-    #   subgroup searched). Should only be used if "k" is set (else there may be no alternatives).
-    # - "tau_abs" is the number of features used in each existing subgroup description that should
-    #   *not* be used in alternative subgroup description; should be set if and only if "a" is set.
+    #   subgroup searched). Should only be set if "k" is set (else there may be no alternatives).
+    # - "tau_abs" is the number of features selected in each existing subgroup description that
+    #   should *not* be selected in alternative subgroup description; parameter should be set if
+    #   and only if "a" is set.
     def __init__(self, k: Optional[int] = None, beam_width: int = 10,
                  a: Optional[int] = None, tau_abs: Optional[int] = None):
         super().__init__(a=a, tau_abs=tau_abs)
         self._k = k
         self._beam_width = beam_width
 
-    # Determine which features may be used for refining the current subgroup defined by "bounds"
-    # (which is a matrix with two rows (LBs/UBs) and one column per feature) on "X_np", considering
-    # (1) a feature-cardinality constraint and (2) constraints for alternatives
-    # (if "was_feature_used_np" is passed, which is a matrix where rows denote existing subgroups
+    # Determine which features may be selected for refining the current subgroup defined by
+    # "bounds" (which is a matrix with two rows (LBs/UBs) and one column per feature) on "X_np",
+    # considering (1) a feature-cardinality constraint and (2) constraints for alternatives (if
+    # "was_feature_selected_np" is passed, which is a matrix where rows denote existing subgroups
     # and columns denote features). Return the (column) indices of permissible features.
     def _get_permissible_feature_idxs(self, X_np: np.array, bounds: np.array,
-                                      was_feature_used_np: Optional[np.array] = None
+                                      was_feature_selected_np: Optional[np.array] = None
                                       ) -> Sequence[float]:
-        is_alternative = was_feature_used_np is not None
+        is_alternative = was_feature_selected_np is not None
         permissible_feature_idxs = range(X_np.shape[1])
         if (self._k is not None) or is_alternative:
-            is_feature_used = ((X_np < bounds[0]) | (X_np > bounds[1])).any(axis=0)
-            used_feature_idxs = np.where(is_feature_used)[0]
+            is_feature_selected = ((X_np < bounds[0]) | (X_np > bounds[1])).any(axis=0)
+            selected_feature_idxs = np.where(is_feature_selected)[0]
         if self._k is not None:
-            if len(used_feature_idxs) == self._k:
-                permissible_feature_idxs = used_feature_idxs
-            elif len(used_feature_idxs) > self._k:
-                raise RuntimeError('The algorithm used more features than allowed.')
+            if len(selected_feature_idxs) == self._k:
+                permissible_feature_idxs = selected_feature_idxs
+            elif len(selected_feature_idxs) > self._k:
+                raise RuntimeError('The algorithm selected more features than allowed.')
         if is_alternative:
             new_permissible_feature_idxs = []
             # For each existing subgroup, count features not selected in current subgroup
-            # (as "was_feature_used_np" is matrix with one row per existing subgroup, compute
+            # (as "was_feature_selected_np" is matrix with one row per existing subgroup, compute
             # row-wise AND and then sum over columns aka features):
-            deselection_counts = np.count_nonzero(was_feature_used_np & ~is_feature_used, axis=1)
+            deselection_counts = np.count_nonzero(was_feature_selected_np & ~is_feature_selected,
+                                                  axis=1)
             # Minimum dissimilarity regarding each existing subgroup depends on number of actually
-            # used features (latter may be < "k", so "tau_abs" decreased to avoid infeasiblity)
-            tau_abs_adapted = np.minimum(self._tau_abs, was_feature_used_np.sum(axis=1))
+            # selected features (latter may be < "k", so "tau_abs" decreased to avoid infeasiblity)
+            tau_abs_adapted = np.minimum(self._tau_abs, was_feature_selected_np.sum(axis=1))
             for j in permissible_feature_idxs:
-                # If candidate feature "j" freshly enters the subgroup (was not used before) and
-                # was used before, deselection count decreases by one:
-                if is_feature_used[j]:
+                # If candidate feature "j" freshly enters the subgroup (was not selected in current
+                # subgroup before) but was selected in other subgroup, deselection count decreases
+                # by one:
+                if is_feature_selected[j]:
                     deselection_counts_j = deselection_counts
                 else:
-                    deselection_counts_j = deselection_counts - was_feature_used_np[:, j]
+                    deselection_counts_j = deselection_counts - was_feature_selected_np[:, j]
                 if (deselection_counts_j >= tau_abs_adapted).all():
                     new_permissible_feature_idxs.append(j)
             permissible_feature_idxs = new_permissible_feature_idxs
@@ -745,17 +755,17 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
     # description (if optional arguments are passed). Return meta-data about the optimization
     # process (see superclass for details).
     def _optimize(self, X: pd.DataFrame, y: pd.Series,
-                  was_feature_used_list: Optional[Sequence[Sequence[bool]]] = None,
+                  was_feature_selected_list: Optional[Sequence[Sequence[bool]]] = None,
                   was_instance_in_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         if was_instance_in_box is not None:  # search alternative subgroup description
             objective_func = hamming_np
             y_np = np.array(was_instance_in_box)  # reproduce subgroup, true "y" doesn't matter
-            was_feature_used_np = np.array(was_feature_used_list)
+            was_feature_selected_np = np.array(was_feature_selected_list)
         else:  # search original subgroup description
             objective_func = wracc_np
             y_np = y.values
-            was_feature_used_np = None
+            was_feature_selected_np = None
         X_np = X.values  # working directly on numpy arrays rather than pandas faster
         start_time = time.process_time()
         # Initially, all boxes in the beam are unbounded, i.e., limits are (-inf, inf) per feature:
@@ -783,7 +793,7 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
                 is_in_box = beam_is_in_box[box_idx]
                 # Enforce constrains for feature cardinality and alternatives:
                 permissible_feature_idxs = self._get_permissible_feature_idxs(
-                    X_np=X_np, bounds=bounds, was_feature_used_np=was_feature_used_np)
+                    X_np=X_np, bounds=bounds, was_feature_selected_np=was_feature_selected_np)
                 for j in permissible_feature_idxs:
                     bound_values = np.unique(X_np[is_in_box, j])  # sorted by default
                     # Test new values for lower bound (> box's previous one but <= box's UB)
@@ -853,7 +863,7 @@ class BestIntervalSubgroupDiscoverer(SubgroupDiscoverer):
     """
 
     # Initialize fields.
-    # - "k" is the maximum number of features used in the subgroup description.
+    # - "k" is the maximum number of features that may be selected in the subgroup description.
     # - "beam_width" is the number of candidate subgroups kept per iteration (lower == faster but
     #   potentially lower quality).
     def __init__(self, k: Optional[int] = None, beam_width: int = 10):
@@ -861,18 +871,19 @@ class BestIntervalSubgroupDiscoverer(SubgroupDiscoverer):
         self._k = k
         self._beam_width = beam_width
 
-    # Determine which features may be used for refining the current subgroup defined by "bounds"
-    # (which is a matrix with two rows (LBs/UBs) and one column per feature) on "X_np", considering
-    # a feature-cardinality constraint. Return the (column) indices of permissible features.
+    # Determine which features may be selected for refining the current subgroup defined by
+    # "bounds" (which is a matrix with two rows (LBs/UBs) and one column per feature) on "X_np",
+    # considering a feature-cardinality constraint. Return the (column) indices of permissible
+    # features.
     def _get_permissible_feature_idxs(self, X_np: np.array, bounds: np.array) -> Sequence[float]:
         permissible_feature_idxs = range(X_np.shape[1])
         if self._k is not None:
-            is_feature_used = ((X_np < bounds[0]) | (X_np > bounds[1])).any(axis=0)
-            used_feature_idxs = np.where(is_feature_used)[0]
-            if len(used_feature_idxs) == self._k:
-                permissible_feature_idxs = used_feature_idxs
-            elif len(used_feature_idxs) > self._k:
-                raise RuntimeError('The algorithm used more features than allowed.')
+            is_feature_selected = ((X_np < bounds[0]) | (X_np > bounds[1])).any(axis=0)
+            selected_feature_idxs = np.where(is_feature_selected)[0]
+            if len(selected_feature_idxs) == self._k:
+                permissible_feature_idxs = selected_feature_idxs
+            elif len(selected_feature_idxs) > self._k:
+                raise RuntimeError('The algorithm selected more features than allowed.')
         return permissible_feature_idxs
 
     # Iteratively refine boxes; stop if no box in the beam has changed in the previous iteration.
