@@ -24,7 +24,7 @@ import sd
 # Different components of the experimental design.
 N_FOLDS = 5  # cross-validation
 SOLVER_TIMEOUTS = [2 ** x for x in range(12)]  # in seconds
-CARDINALITIES = [1, 2, 3, 4, 5, None]  # maximum number of features used in subgroup
+CARDINALITIES = [1, 2, 3, 4, 5, None]  # maximum number of features selected in subgroup
 ALT_CARDINALITIES = [3]  # cardinalities for which alternatives should be searched
 ALT_NUMBER = 5  # number of alternatives if alteratives should be searched
 

@@ -271,14 +271,14 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
                    for j in range(n_features)]
         ub_vars = [model.NumVar(name=f'ub_{j}', lb=feature_minima[j], ub=feature_maxima[j])
                    for j in range(n_features)]
-        is_instance_in_box_vars = [model.BoolVar(name=f'x_{i}') for i in range(n_instances)]
-        is_value_in_box_lb_vars = [[model.BoolVar(name=f'x_lb_{i}_{j}') for j in range(n_features)]
+        is_instance_in_box_vars = [model.BoolVar(name=f'b_{i}') for i in range(n_instances)]
+        is_value_in_box_lb_vars = [[model.BoolVar(name=f'b_lb_{i}_{j}') for j in range(n_features)]
                                    for i in range(n_instances)]
-        is_value_in_box_ub_vars = [[model.BoolVar(name=f'x_ub_{i}_{j}') for j in range(n_features)]
+        is_value_in_box_ub_vars = [[model.BoolVar(name=f'b_ub_{i}_{j}') for j in range(n_features)]
                                    for i in range(n_instances)]
-        is_feature_selected_vars = [model.BoolVar(name=f'f_{j}') for j in range(n_features)]
-        is_feature_selected_lb_vars = [model.BoolVar(name=f'f_lb_{j}') for j in range(n_features)]
-        is_feature_selected_ub_vars = [model.BoolVar(name=f'f_ub_{j}') for j in range(n_features)]
+        is_feature_selected_vars = [model.BoolVar(name=f's_{j}') for j in range(n_features)]
+        is_feature_selected_lb_vars = [model.BoolVar(name=f's_lb_{j}') for j in range(n_features)]
+        is_feature_selected_ub_vars = [model.BoolVar(name=f's_ub_{j}') for j in range(n_features)]
 
         # Define auxiliary expressions for use in objective and potentially even constraints
         # (could also be variables, bound by "==" constraints; roughly same optimizer performance):
@@ -402,10 +402,10 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         # Define variables of the optimization problem:
         lb_vars = [z3.Real(f'lb_{j}') for j in range(n_features)]
         ub_vars = [z3.Real(f'ub_{j}') for j in range(n_features)]
-        is_instance_in_box_vars = [z3.Bool(f'x_{i}') for i in range(n_instances)]
-        is_feature_selected_vars = [z3.Bool(f'f_{j}') for j in range(n_features)]
-        is_feature_selected_lb_vars = [z3.Bool(f'f_lb_{j}') for j in range(n_features)]
-        is_feature_selected_ub_vars = [z3.Bool(f'f_ub_{j}') for j in range(n_features)]
+        is_instance_in_box_vars = [z3.Bool(f'b_{i}') for i in range(n_instances)]
+        is_feature_selected_vars = [z3.Bool(f's_{j}') for j in range(n_features)]
+        is_feature_selected_lb_vars = [z3.Bool(f's_lb_{j}') for j in range(n_features)]
+        is_feature_selected_ub_vars = [z3.Bool(f's_ub_{j}') for j in range(n_features)]
 
         # Define optimizer and objective:
         optimizer = z3.Optimize()
@@ -530,10 +530,10 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
 
     # Initialize fields. "k" is the maximum number of features that may be selected in the subgroup
     # description.
-    def __init__(self, k: Optional[int] = None, n_repetitions: int = 1000):
+    def __init__(self, k: Optional[int] = None, n_iters: int = 1000):
         super().__init__()
         self._k = k
-        self._n_repetitions = n_repetitions
+        self._n_iters = n_iters
 
     # Repeatedly sample random boxes and pick the best of them. Return meta-data about the fitting
     # process (see superclass for more details).
@@ -546,7 +546,7 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
         # "Optimization": Repeated random sampling
         start_time = time.process_time()
         opt_quality = float('-inf')
-        for _ in range(self._n_repetitions):
+        for _ in range(self._n_iters):
             box_feature_idx = range(X.shape[1])  # default: all features may be restricted in box
             if (self._k is not None) and (self._k < X.shape[1]):
                 box_feature_idx = rng.sample(box_feature_idx, k=self._k)
@@ -597,16 +597,16 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
     # Initialize fields.
     # - "k" is the maximum number of features that may be selected in the subgroup description.
     # - "alpha" is the fraction of instances peeled off per iteration.
-    # - "min_support" is the minimum fraction of instances in the box to continue peeling.
-    def __init__(self, k: Optional[int] = None, alpha: float = 0.05, min_support: float = 0):
+    # - "beta_0" is the minimum fraction of instances in the box to continue peeling.
+    def __init__(self, k: Optional[int] = None, alpha: float = 0.05, beta_0: float = 0):
         super().__init__()
         self._k = k
         self._alpha = alpha
-        self._min_support = min_support
+        self._beta_0 = beta_0
 
     # Iteratively peel off (at least) a fraction "_alpha" of the instances by moving one bound of
-    # one feature (choose best WRAcc); stop if empty box produced or "_min_support" violated.
-    # Return meta-data about the fitting process (see superclass for more details).
+    # one feature (choose best WRAcc); stop if empty box produced or support threshold "_beta_0"
+    # violated. Return meta-data about the fitting process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         X_np = X.values  # working directly on numpy arrays rather than pandas sometimes way faster
@@ -621,7 +621,7 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         opt_box_ubs = self._box_ubs.copy()
         has_peeled = True
         # Peeling continues as long as box has changed and contains certain number of instances
-        while has_peeled and (np.count_nonzero(y_pred) / len(y_np) > self._min_support):
+        while has_peeled and (np.count_nonzero(y_pred) / len(y_np) > self._beta_0):
             # Note that peeling also changes "self._box_lbs" and "self._box_ubs"
             has_peeled = self._peel_one_step(X=X_np, y=y_np)
             y_pred = self.predict_np(X=X_np)
