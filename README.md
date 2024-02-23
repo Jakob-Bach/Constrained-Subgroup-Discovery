@@ -125,6 +125,8 @@ optimization_time                      0.03125
 fitting_time                          0.046875
 train_wracc                           0.208125
 test_wracc                            0.212222
+train_nwracc                          0.975904
+test_nwracc                           0.864253
 box_lbs                [-inf, -inf, 3.0, -inf]
 box_ubs                   [7.0, inf, 5.1, 1.7]
 selected_feature_idxs                [0, 2, 3]
@@ -167,6 +169,8 @@ optimization_time    0.02  0.03  0.02  0.03  0.02
 fitting_time         0.03  0.03  0.02  0.03  0.02
 train_wracc          0.21  0.17  0.16   0.1   0.1
 test_wracc           0.21  0.17  0.17  0.13  0.11
+train_nwracc         0.98  0.82  0.77  0.46  0.45
+test_nwracc          0.86  0.71  0.69  0.54  0.46
 alt.hamming           1.0  0.94  0.92  0.81  0.76
 alt.jaccard           1.0  0.83  0.77   0.5  0.48
 alt.number              0     1     2     3     4

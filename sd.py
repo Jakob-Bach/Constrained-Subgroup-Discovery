@@ -35,6 +35,31 @@ def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return n_true_pos / n_instances - n_pred_pos * n_actual_pos / (n_instances ** 2)
 
 
+# Computes the normalized weighted relative accuracy (nWRAcc) for two binary (bool or int)
+# sequences (may also be pd.Series or np.array) indicating class labels and predictions.
+# This metric equals WRAcc divided by its maximum (= product of class probabilities).
+def nwracc(y_true: Sequence[bool], y_pred: Sequence[bool]) -> float:
+    n_true_pos = sum(y_t and y_p for y_t, y_p in zip(y_true, y_pred))
+    n_instances = len(y_true)
+    n_actual_pos = sum(y_true)
+    n_pred_pos = sum(y_pred)
+    enumerator = n_true_pos * n_instances - n_pred_pos * n_actual_pos
+    denominator = n_actual_pos * (n_instances - n_actual_pos)
+    return enumerator / denominator
+
+
+# Same functionality as nwracc(), but faster and intended for binary (bool or int) numpy arrays.
+# This fast method should be preferred if called often as a subroutine.
+def nwracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    n_true_pos = np.count_nonzero(y_true & y_pred)
+    n_instances = len(y_true)
+    n_actual_pos = np.count_nonzero(y_true)
+    n_pred_pos = np.count_nonzero(y_pred)
+    enumerator = n_true_pos * n_instances - n_pred_pos * n_actual_pos
+    denominator = n_actual_pos * (n_instances - n_actual_pos)
+    return enumerator / denominator
+
+
 # Computes the Jaccard similarity between two binary (bool or int) sequences (may also be pd.Series
 # or np.array) indicating set membership.
 def jaccard(set_1_indicators: Sequence[bool], set_2_indicators: Sequence[bool]) -> float:
@@ -125,9 +150,13 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
         start_time = time.process_time()
         results = self.fit(X=X_train, y=y_train)  # returns a dict with evaluation metrics
         end_time = time.process_time()
+        y_pred_train = self.predict(X=X_train)
+        y_pred_test = self.predict(X=X_test)
         results['fitting_time'] = end_time - start_time
-        results['train_wracc'] = wracc(y_true=y_train, y_pred=self.predict(X=X_train))
-        results['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
+        results['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
+        results['test_wracc'] = wracc(y_true=y_test, y_pred=y_pred_test)
+        results['train_nwracc'] = nwracc(y_true=y_train, y_pred=y_pred_train)
+        results['test_nwracc'] = nwracc(y_true=y_test, y_pred=y_pred_test)
         results['box_lbs'] = self.get_box_lbs().tolist()
         results['box_ubs'] = self.get_box_ubs().tolist()
         results['selected_feature_idxs'] = self.get_selected_feature_idxs()
@@ -202,12 +231,15 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
                                         was_instance_in_box=was_instance_in_box)
             end_time = time.process_time()
             y_pred_train = self.predict(X=X_train)
+            y_pred_test = self.predict(X=X_test)
             if i == 0:
                 was_instance_in_box = y_pred_train.astype(bool).to_list()
             was_feature_selected_list.append(self.is_feature_selected())
             result['fitting_time'] = end_time - start_time
             result['train_wracc'] = wracc(y_true=y_train, y_pred=y_pred_train)
-            result['test_wracc'] = wracc(y_true=y_test, y_pred=self.predict(X=X_test))
+            result['test_wracc'] = wracc(y_true=y_test, y_pred=y_pred_test)
+            result['train_nwracc'] = nwracc(y_true=y_train, y_pred=y_pred_train)
+            result['test_nwracc'] = nwracc(y_true=y_test, y_pred=y_pred_test)
             result['alt.hamming'] = hamming(sequence_1=was_instance_in_box,
                                             sequence_2=y_pred_train)
             result['alt.jaccard'] = jaccard(set_1_indicators=was_instance_in_box,

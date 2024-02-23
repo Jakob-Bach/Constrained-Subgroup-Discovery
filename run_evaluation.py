@@ -24,14 +24,6 @@ def sum_unique_values(dataset_name: str, data_dir: pathlib.Path) -> int:
     return X.nunique().sum()
 
 
-# Determine the maximum WRAcc for a datset, which depends on the class imbalance. For binary
-# classification, it corresponds to the product of the two relative class frequencies.
-def wracc_max(dataset_name: str, data_dir: pathlib.Path) -> float:
-    _, y = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
-    frac_positive = y.sum() / len(y)
-    return frac_positive * (1 - frac_positive)
-
-
 # Main-routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
 # and some dataset information from "data_dir". Save plots to the "plot_dir". Print some statistics
 # to the console.
@@ -45,23 +37,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print('The plot directory is not empty. Files might be overwritten but not deleted.')
 
     results = data_handling.load_results(directory=results_dir)
-    dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
-
-    # Compute maximum WRAcc (depending on dataset's class imbalance) and use it to normalize WRAcc:
-    dataset_overview['max_wracc'] = dataset_overview['dataset'].apply(wracc_max, data_dir=data_dir)
-    dataset_overview.rename(columns={'dataset': 'dataset_name'}, inplace=True)
-    results = results.merge(dataset_overview[['dataset_name', 'max_wracc']])
-    results[['train_wracc', 'test_wracc']] = results[['train_wracc', 'test_wracc']].div(
-        results['max_wracc'], axis='index')  # divide each column separately (instead of each row)
-    results.drop(columns='max_wracc', inplace=True)
 
     # Define column list for evaluation:
-    evaluation_metrics = ['optimization_time', 'fitting_time', 'train_wracc', 'test_wracc']
+    evaluation_metrics = ['optimization_time', 'fitting_time', 'train_nwracc', 'test_nwracc']
     alt_evaluation_metrics = ['alt.hamming', 'alt.jaccard']
 
     # Compute further evaluation metrics:
     results['time_fit_opt_diff'] = results['fitting_time'] - results['optimization_time']
-    results['wracc_train_test_diff'] = results['train_wracc'] - results['test_wracc']
+    results['wracc_train_test_diff'] = results['train_nwracc'] - results['test_nwracc']
 
     # Define constants for filtering results:
     max_k = 'no'  # placeholder value for unlimited cardinality (else not appearing in groupby())
@@ -262,7 +245,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\nHow are the mean values of evaluation metrics (shifted to [0, 1] and max-normalized',
           'with quality of original subgroup) distributed over the number of alternative and the',
           'dissimilarity threshold (all datasets)?')
-    norm_metrics = ['train_wracc', 'test_wracc']
+    norm_metrics = ['train_nwracc', 'test_nwracc']
     norm_group_cols = ['dataset_name', 'split_idx', 'sd_name', 'param.tau_abs']
     norm_results = eval_results[norm_group_cols + ['alt.number'] + norm_metrics].copy()
     norm_results[norm_metrics] = (norm_results[norm_metrics] + 1) / 2  # from [-1, 1] to [0, 1]
