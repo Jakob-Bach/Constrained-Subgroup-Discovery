@@ -355,8 +355,8 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
             for i in range(n_instances):
                 model.Add(1 - is_value_in_box_lb_vars[i][j] <= is_feature_selected_lb_vars[j])
                 model.Add(1 - is_value_in_box_ub_vars[i][j] <= is_feature_selected_ub_vars[j])
-                model.Add(is_feature_selected_lb_vars[j] <= is_feature_selected_vars[j])
-                model.Add(is_feature_selected_ub_vars[j] <= is_feature_selected_vars[j])
+            model.Add(is_feature_selected_lb_vars[j] <= is_feature_selected_vars[j])
+            model.Add(is_feature_selected_ub_vars[j] <= is_feature_selected_vars[j])
             # Feature j selected -> there is any Instance i where Feature j's value not in box
             model.Add(
                 is_feature_selected_vars[j] <=
