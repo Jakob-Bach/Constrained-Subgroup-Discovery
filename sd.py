@@ -651,11 +651,10 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         opt_quality = wracc_np(y_true=y_np, y_pred=y_pred)
         opt_box_lbs = self._box_lbs.copy()  # fields will be changed for predictions, so copy
         opt_box_ubs = self._box_ubs.copy()
-        has_peeled = True
-        # Peeling continues as long as box has changed and contains certain number of instances
-        while has_peeled and (np.count_nonzero(y_pred) / len(y_np) > self._beta_0):
+        # Peeling continues as long as box contains certain number of instances:
+        while np.count_nonzero(y_pred) / len(y_np) > self._beta_0:
             # Note that peeling also changes "self._box_lbs" and "self._box_ubs"
-            has_peeled = self._peel_one_step(X=X_np, y=y_np)
+            self._peel_one_step(X=X_np, y=y_np)
             y_pred = self.predict_np(X=X_np)
             quality = wracc_np(y_true=y_np, y_pred=y_pred)
             if quality > opt_quality:
@@ -691,8 +690,7 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
 
     # For each feature, check the "alpha" / "1 -  alpha" quantile for instances in the box as
     # potential new lower / upper bound. Choose the feature and bound with the best objective
-    # (WRAcc) value. Return if peeling was successful (fails if only an emtpy box would be
-    # created, e.g., if features only contain one value each or empty box is optimal).
+    # (WRAcc) value. If only empty boxes are produced or an empty box is optimal, return it.
     def _peel_one_step(self, X: np.ndarray, y: np.ndarray) -> bool:
         is_instance_in_old_box = self.predict_np(X=X)
         opt_quality = float('-inf')  # select one peel even if it's not better than previous box
@@ -726,17 +724,22 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
                 opt_bound = bound
                 opt_is_ub = True
         if opt_is_ub:
-            # Convert ">", potentially for a midpoint value, to ">=" for an actual feature value:
+            # Convert "<", potentially for a midpoint value, to "<=" for an actual feature value:
             in_box_values = X[is_instance_in_old_box & (X[:, opt_feature_idx] < opt_bound),
                               opt_feature_idx]
             if len(in_box_values) > 0:
                 self._box_ubs[opt_feature_idx] = float(in_box_values.max())
+            else:  # produce an empty (and invalid) box
+                self._box_lbs[opt_feature_idx] = float('inf')
+                self._box_ubs[opt_feature_idx] = float('-inf')
         else:
             in_box_values = X[is_instance_in_old_box & (X[:, opt_feature_idx] > opt_bound),
                               opt_feature_idx]
             if len(in_box_values) > 0:
                 self._box_lbs[opt_feature_idx] = float(in_box_values.min())
-        return len(in_box_values) > 0  # New, non-empty box produced
+            else:  # produce an empty (and invalid) box
+                self._box_lbs[opt_feature_idx] = float('inf')
+                self._box_ubs[opt_feature_idx] = float('-inf')
 
 
 class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
