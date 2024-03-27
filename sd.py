@@ -645,8 +645,8 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         y_np = y.values
         # Optimization: Iterative box updates
         start_time = time.process_time()
-        self._box_lbs = X_np.min(axis=0)
-        self._box_ubs = X_np.max(axis=0)
+        self._box_lbs = np.repeat(float('-inf'), repeats=X_np.shape[1])
+        self._box_ubs = np.repeat(float('inf'), repeats=X_np.shape[1])
         y_pred = self.predict_np(X=X_np)
         opt_quality = wracc_np(y_true=y_np, y_pred=y_pred)
         opt_box_lbs = self._box_lbs.copy()  # fields will be changed for predictions, so copy
