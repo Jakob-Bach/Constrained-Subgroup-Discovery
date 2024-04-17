@@ -49,7 +49,7 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
             beam_args.append({'k': k})
     return [
         {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer, 'sd_args_list': smt_args},
-        {'sd_name': 'MORB', 'sd_type': sd.MORBSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'MORS', 'sd_type': sd.MORSSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'BI', 'sd_type': sd.BestIntervalSubgroupDiscoverer, 'sd_args_list': card_args},

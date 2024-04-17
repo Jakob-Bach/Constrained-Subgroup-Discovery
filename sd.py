@@ -515,8 +515,8 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
                 'optimization_time': end_time - start_time}
 
 
-class MORBSubgroupDiscoverer(SubgroupDiscoverer):
-    """MORB (Minimal Optimal-Recall Box) baseline for subgroup discovery
+class MORSSubgroupDiscoverer(SubgroupDiscoverer):
+    """MORS (Minimal Optimal-Recall Subgroup) baseline for subgroup discovery
 
     Choose the bounds as the minimum and maximum feature value of positive instances, so the box
     contains all positive instances and has the minimal size of all boxes doing so. Finds the

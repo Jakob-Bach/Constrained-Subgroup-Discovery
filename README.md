@@ -40,7 +40,7 @@ Currently, we provide seven subgroup-discovery methods as classes in `sd.py`:
 
 - exact optimization: `MIPSubgroupDiscoverer`, `SMTSubgroupDiscoverer`
 - heuristics: `BeamSearchSubgroupDiscoverer`, `BestIntervalSubgroupDiscoverer`, `PRIMSubgroupDiscoverer`
-- baselines: `MORBSubgroupDiscoverer`, `RandomSubgroupDiscoverer`
+- baselines: `MORSSubgroupDiscoverer`, `RandomSubgroupDiscoverer`
 
 The heuristics are from literature or adaptations from other packages, while we conceived the remaining methods.
 
