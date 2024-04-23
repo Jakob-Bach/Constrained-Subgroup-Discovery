@@ -8,9 +8,11 @@ Usage: python -m run_evaluation --help
 
 
 import argparse
+import ast
 import pathlib
 
 import matplotlib.pyplot as plt
+import pandas as pd
 
 import data_handling
 
@@ -37,6 +39,11 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print('The plot directory is not empty. Files might be overwritten but not deleted.')
 
     results = data_handling.load_results(directory=results_dir)
+
+    # Make feature sets proper lists (converting lbs/ubs would be harder, since they contain inf):
+    results['selected_feature_idxs'] = results['selected_feature_idxs'].apply(ast.literal_eval)
+    assert (results['param.k'].isna() |
+            (results['selected_feature_idxs'].apply(len) <= results['param.k'])).all()
 
     # Define column list for evaluation:
     evaluation_metrics = ['optimization_time', 'fitting_time', 'train_nwracc', 'test_nwracc']
@@ -178,6 +185,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     no_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
         lambda x: (x == 'sat').all())  # returns Series with bool values and DS names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+
+    print('\nHow does the number of actually selected features differ from the prescribed "k"?')
+    print(pd.crosstab(
+        eval_results.loc[eval_results['param.k'] != max_k, 'param.k'],
+        eval_results.loc[eval_results['param.k'] != max_k, 'selected_feature_idxs'].apply(
+            len).rename('actually selected')))
 
     print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
           '(all datasets)?')
