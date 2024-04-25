@@ -152,7 +152,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                          bbox_to_anchor=(0, -0.3), columnspacing=1, framealpha=0, ncols=2)
         leg.get_title().set_position((-127, -25))
         plt.tight_layout()
-        plt.savefig(plot_dir / f'csd-methods-unconstrained-nwracc-{selection_name}.pdf')
+        plt.savefig(plot_dir / f'csd-unconstrained-methods-nwracc-{selection_name}.pdf')
 
     print('\nHow is the difference "train - test" in nWRAcc distributed?')
     print(eval_results.groupby('sd_name')['nwracc_train_test_diff'].describe().transpose().round(3))
@@ -321,30 +321,41 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
                 index='param.k', columns='sd_name').round(3))
 
+    print('\n-- Subgroup quality --')
+
+    # Figures 3a, 3b: Subgroup quality over cardinality, by subgroup-discovery method
+    plot_results = eval_results[['sd_name', 'param.k', 'train_nwracc', 'test_nwracc']].copy()
+    plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
+    for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
+        plt.figure(figsize=(5, 5))
+        plt.rcParams['font.size'] = 18
+        sns.lineplot(x='param.k', y=metric, hue='sd_name', style='sd_name', data=plot_results,
+                     palette='Dark2', hue_order=sd_name_plot_order)
+        plt.xlabel('Feature cardinality $k$')
+        plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
+        plt.ylabel('Mean ' + metric_name)
+        plt.ylim(-0.05, 0.65)
+        plt.yticks(np.arange(start=0, stop=0.7, step=0.1))
+        plt.legend(title=None, edgecolor='white', loc='upper left',
+                   bbox_to_anchor=(0, -0.25), columnspacing=1, framealpha=0, ncols=2)
+        plt.figtext(x=0.14, y=0.19, s='Method', rotation='vertical')
+        plt.tight_layout()
+        plt.savefig(plot_dir / f'csd-cardinality-methods-{metric.replace("_", "-")}.pdf')
+
     print('\nHow is the mean difference "train - test" in nWRAcc distributed over cardinality "k"',
           '(all datasets)?')
     print(eval_results.groupby(['sd_name', 'param.k'])['nwracc_train_test_diff'].mean(
         ).reset_index().pivot(index='param.k', columns='sd_name').round(3))
 
-    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
-          'over cardinality "k" (all datasets)?')
-    print_results = eval_results.pivot(index=['dataset_name', 'split_idx', 'param.k'],
-                                       columns='sd_name', values=evaluation_metrics).reset_index()
-    for metric in evaluation_metrics:
-        print_results[(metric, 'diff')] = (print_results[(metric, 'SMT')] -
-                                           print_results[(metric, 'Beam')])
-    print_results = print_results.loc[:, (slice(None), ['', 'diff'])]  # keep "diff" & ID cols
-    print_results = print_results.droplevel(level='sd_name', axis='columns')
-    for metric in evaluation_metrics:
-        print(f'Metric: {metric}')
-        print(print_results.groupby('param.k')[metric].describe().round(3))
+    print('\n-- Runtime --')
 
-    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
-          'over cardinality "k" (datasets without timeout in exact optimization)?')
-    for metric in evaluation_metrics:
-        print(f'Metric: {metric}')
-        print(print_results[print_results['dataset_name'].isin(no_timeout_datasets)].groupby(
-            'param.k')[metric].describe().round(3))
+    print('\n## Table 4: Mean runtime by subgroup-discovery-method and cardinality "k" ##\n')
+    print_results = eval_results.groupby(['sd_name', 'param.k'])['fitting_time'].mean()
+    print_results = print_results.reset_index().pivot(index='param.k', columns='sd_name',
+                                                      values='fitting_time')
+    print_results.index.name = None
+    print_results.columns.name = '$k$'
+    print(print_results.style.format('{:.2f}~s'.format).to_latex(hrules=True))
 
     print('\n------ Experimental scenario 4: Alternative subgroup descriptions',
           '(max timeout, fixed cardinality) ------')
