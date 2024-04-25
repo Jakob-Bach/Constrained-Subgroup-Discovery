@@ -12,6 +12,7 @@ import ast
 import pathlib
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -58,8 +59,10 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     results['nwracc_train_test_diff'] = results['train_nwracc'] - results['test_nwracc']
 
     # Define constants for filtering results:
+    int_na_columns = ['param.k', 'param.timeout', 'param.tau_abs', 'alt.number']
+    results[int_na_columns] = results[int_na_columns].astype('Int64')  # int with NAs
     max_k = 'no'  # placeholder value for unlimited cardinality (else not appearing in groupby())
-    results['param.k'].fillna(max_k, inplace=True)
+    results['param.k'] = results['param.k'].astype('object').fillna(max_k)
     max_timeout = results['param.timeout'].max()
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
@@ -79,8 +82,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         lambda dataset_name: (results.loc[
             (results['dataset_name'] == dataset_name) & (results['sd_name'] == 'SMT') &
             (results['param.timeout'] == max_timeout) &
-            results['alt.number'].isin([float('nan'), 0]) &
-            results['param.tau_abs'].isin([float('nan'), min_tau_abs]),
+            results['alt.number'].isin([pd.NA, 0]) &
+            results['param.tau_abs'].isin([pd.NA, min_tau_abs]),
             'optimization_status'] != 'sat').any())
     print_results.replace({False: 'No', True: 'Yes'}, inplace=True)
     print_results['Dataset'] = print_results['Dataset'].str.replace('GAMETES', 'G')
@@ -95,10 +98,10 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\n------ Experimental scenario 1: Unconstrained subgroup discovery',
           '(max timeout, max cardinality, no alternatives) ------')
 
-    eval_results = results[results['param.timeout'].isin([float('nan'), max_timeout]) &
+    eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            (results['param.k'] == max_k) &
-                           results['alt.number'].isin([float('nan'), 0]) &
-                           results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
+                           results['alt.number'].isin([pd.NA, 0]) &
+                           results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
     all_datasets = eval_results['dataset_name'].unique()
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
@@ -193,18 +196,44 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n------ Experimental scenario 2: Solver timeouts (no alternatives) ------')
 
+    print('\n-- Finished tasks --')
+
     print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
-    print_results = results.loc[(results['sd_name'] == 'SMT') &
-                                results['alt.number'].isin([float('nan'), 0]) &
-                                results['param.tau_abs'].isin([float('nan'), min_tau_abs]),
-                                ['param.k', 'param.timeout', 'optimization_status']].copy()
-    print_results = print_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
+    eval_results = results.loc[(results['sd_name'] == 'SMT') &
+                               results['alt.number'].isin([pd.NA, 0]) &
+                               results['param.tau_abs'].isin([pd.NA, min_tau_abs]),
+                               ['param.k', 'param.timeout', 'optimization_status']].copy()
+    print_results = eval_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
 
+    # Figure 2a: Number of finished SMT tasks over timeouts, by feature cardinality
+    plot_results = print_results.copy()
+    plot_results['param.timeout'] = plot_results['param.timeout'].astype(int)  # Int64 doesn't work
+    plt.figure(figsize=(4, 3))
+    plt.rcParams['font.size'] = 15
+    sns.lineplot(x='param.timeout', y='finished', hue='param.k', style='param.k',
+                 data=plot_results, palette=sns.color_palette('RdPu', 7)[1:])
+    plt.xlabel('Solver timeout in seconds')
+    plt.xscale('log')
+    plt.xticks(ticks=[2**x for x in range(12)],
+               labels=['$2^{' + str(x) + '}$' if x % 2 == 1 else '' for x in range(12)])
+    plt.xticks(ticks=[], minor=True)
+    plt.ylabel('Finished tasks')
+    plt.yticks(ticks=np.arange(start=0, stop=1.1, step=0.2))
+    plt.gca().yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(xmax=1))
+    plt.ylim(-0.05, 1.05)
+    leg = plt.legend(title='$k$', edgecolor='white', loc='upper left',
+                     bbox_to_anchor=(-0.15, -0.1), columnspacing=1, framealpha=0, ncols=3)
+    leg.get_title().set_position((-118, -33))
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'csd-timeouts-finished-tasks.pdf')
+
+    print('\n-- Subgroup quality --')
+
     eval_results = results[(results['sd_name'] == 'SMT') & (results['param.k'] == max_k) &
-                           results['alt.number'].isin([float('nan'), 0]) &
-                           results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
+                           results['alt.number'].isin([pd.NA, 0]) &
+                           results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
     all_timeout_datasets = eval_results.groupby('dataset_name')['optimization_status'].agg(
         lambda x: (x != 'sat').all())  # returns Series with bool values and DS names as index
     all_timeout_datasets = all_timeout_datasets[all_timeout_datasets].index.to_list()
@@ -218,6 +247,42 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results[eval_results['dataset_name'].isin(all_timeout_datasets)].groupby(
         'param.timeout')[evaluation_metrics].mean().round(3))
 
+    print('\nWhat is the mean value of evaluation metrics for beam search on the timeout-only',
+          'datasets (with maximum cardinality)?')
+    print_results = results[(results['sd_name'] == 'Beam') & (results['param.k'] == max_k) &
+                            results['alt.number'].isin([pd.NA, 0]) &
+                            results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
+    print(print_results[print_results['dataset_name'].isin(all_timeout_datasets)].groupby(
+        'dataset_name')[evaluation_metrics].mean().reset_index(drop=True).round(3))
+
+    print('\nWhat is the mean value of evaluation metrics for beam search overall',
+          '(with maximum cardinality)?')
+    print(print_results[evaluation_metrics].mean().round(3))
+
+    # Figure 2b: Subgroup quality over timeouts
+    plot_results = eval_results[['param.timeout', 'train_nwracc', 'test_nwracc']]
+    plot_results = plot_results.melt(id_vars=['param.timeout'], value_name='nWRAcc',
+                                     value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
+    plot_results['param.timeout'] = plot_results['param.timeout'].astype(int)  # Int64 doesn't work
+    plot_results['Split'] = plot_results['Split'].str.replace('_nwracc', '')
+    plt.figure(figsize=(4, 3))
+    plt.rcParams['font.size'] = 15
+    sns.lineplot(x='param.timeout', y='nWRAcc', hue='Split', style='Split', data=plot_results,
+                 palette='Set2')
+    plt.xlabel('Solver timeout in seconds')
+    plt.xscale('log')
+    plt.xticks(ticks=[2**x for x in range(12)],
+               labels=['$2^{' + str(x) + '}$' if x % 2 == 1 else '' for x in range(12)])
+    plt.xticks(ticks=[], minor=True)
+    plt.ylabel('Mean nWRAcc')
+    plt.ylim(-0.05, 0.65)
+    plt.yticks(np.arange(start=0, stop=0.7, step=0.1))
+    leg = plt.legend(title='Split', edgecolor='white', loc='upper left',
+                     bbox_to_anchor=(0, -0.1), columnspacing=1, framealpha=0, ncols=2)
+    leg.get_title().set_position((-107, -21))
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'csd-timeouts-nwracc.pdf')
+
     print('\nHow is the difference "train - test" in nWRAcc distributed over timeouts (with',
           'maximum cardinality and all datasets)?')
     print(eval_results.groupby('param.timeout')['nwracc_train_test_diff'].describe().round(3))
@@ -230,9 +295,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\n------ Experimental scenario 3: Feature-cardinality constraints',
           '(max timeout, no alternatives) ------')
 
-    eval_results = results[results['param.timeout'].isin([float('nan'), max_timeout]) &
-                           results['alt.number'].isin([float('nan'), 0]) &
-                           results['param.tau_abs'].isin([float('nan'), min_tau_abs])]
+    eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
+                           results['alt.number'].isin([pd.NA, 0]) &
+                           results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
