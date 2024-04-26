@@ -166,7 +166,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print_results = eval_results[eval_results['dataset_name'].isin(dataset_list)]
         print_results = print_results.groupby('sd_name')['fitting_time'].agg(
             ['mean', 'std', 'median'])
-        print_results.index.rename('Runtime', inplace=True)
+        print_results.index.rename('Aggregate', inplace=True)
         print_results = print_results.reindex(sd_name_plot_order)
         print_results.rename(columns={'mean': 'Mean', 'std': 'Standard dev.', 'median': 'Median'},
                              inplace=True)
@@ -268,7 +268,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 15
     sns.lineplot(x='param.timeout', y='nWRAcc', hue='Split', style='Split', data=plot_results,
-                 palette='Set2')
+                 palette='Set2', seed=25)
     plt.xlabel('Solver timeout in seconds')
     plt.xscale('log')
     plt.xticks(ticks=[2**x for x in range(12)],
@@ -330,7 +330,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.figure(figsize=(5, 5))
         plt.rcParams['font.size'] = 18
         sns.lineplot(x='param.k', y=metric, hue='sd_name', style='sd_name', data=plot_results,
-                     palette='Dark2', hue_order=sd_name_plot_order)
+                     palette='Dark2', hue_order=sd_name_plot_order, seed=25)
         plt.xlabel('Feature cardinality $k$')
         plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
         plt.ylabel('Mean ' + metric_name)
@@ -365,12 +365,6 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
 
-    print('\nHow is the number of finished SMT tasks distributed over the number of alternative',
-          'and the dissimilarity threshold?')
-    print(eval_results[eval_results['sd_name'] == 'SMT'].groupby(['alt.number', 'param.tau_abs'])[
-        'optimization_status'].agg(lambda x: (x == 'sat').sum() / len(x)).rename('').reset_index(
-            ).pivot(index='alt.number', columns='param.tau_abs').applymap('{:.1%}'.format))
-
     print('\nHow are the mean values of evaluation metrics distributed over the number of',
           'alternative and the dissimilarity threshold (all datasets)?')
     for metric in evaluation_metrics + ['nwracc_train_test_diff'] + alt_evaluation_metrics:
@@ -383,6 +377,54 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
                 index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
+
+    print('\n-- Subgroup similarity --')
+
+    # Figures 4a, 4b: Subgroup similarity over number of alternatives, by dissimilarity threshold
+    # and subgroup-discovery method
+    plot_results = eval_results.copy()
+    plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
+    plot_results['param.tau_abs'] = plot_results['param.tau_abs'].astype(int)
+    plot_results.rename(columns={'sd_name': '_sd_name', 'param.tau_abs': '_param.tau_abs'},
+                        inplace=True)
+    for metric, metric_name, yticks in [
+            ('alt.hamming', 'Norm. Hamming sim.', np.arange(start=0.8, stop=1.05, step=0.1)),
+            ('alt.jaccard', 'Jaccard sim.', np.arange(start=0.2, stop=1.05, step=0.1))]:
+        plt.figure(figsize=(5, 5))
+        plt.rcParams['font.size'] = 18
+        sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name',
+                     data=plot_results, palette=sns.color_palette('RdPu', 4)[1:], seed=25)
+        plt.xlabel('Number of alternative')
+        plt.xticks(range(6))
+        plt.ylabel(metric_name)
+        plt.yticks(yticks)
+        plt.legend(title=None, edgecolor='white', loc='upper left',
+                   bbox_to_anchor=(0, -0.2), columnspacing=4, framealpha=0, ncols=2)
+        plt.figtext(x=0.54, y=0.18, s='Method', rotation='vertical')
+        plt.figtext(x=0.16, y=0.21, s='$\\tau_{\\mathrm{abs}}$', rotation='vertical')
+        plt.tight_layout()
+        plt.savefig(plot_dir / f'csd-alternatives-similarity-{metric.replace("alt.", "")}.pdf')
+
+    print('\n-- Subgroup quality --')
+
+    # Figures 5a, 5b: Subgroup quality over number of alternatives, by dissimilarity threshold
+    # and subgroup-discovery method
+    for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
+        plt.figure(figsize=(5, 5))
+        plt.rcParams['font.size'] = 18
+        sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name',
+                     data=plot_results, palette=sns.color_palette('RdPu', 4)[1:], seed=25)
+        plt.xlabel('Number of alternative')
+        plt.xticks(range(6))
+        plt.ylabel('Mean ' + metric_name)
+        plt.ylim(-0.05, 0.65)
+        plt.yticks(np.arange(start=0, stop=0.7, step=0.1))
+        plt.legend(title=None, edgecolor='white', loc='upper left',
+                   bbox_to_anchor=(0, -0.2), columnspacing=4, framealpha=0, ncols=2)
+        plt.figtext(x=0.54, y=0.18, s='Method', rotation='vertical')
+        plt.figtext(x=0.16, y=0.21, s='$\\tau_{\\mathrm{abs}}$', rotation='vertical')
+        plt.tight_layout()
+        plt.savefig(plot_dir / f'csd-alternatives-{metric.replace("_", "-")}.pdf')
 
     print('\nHow are the mean values of evaluation metrics (shifted to [0, 1] and max-normalized',
           'with quality of original subgroup) distributed over the number of alternative and the',
@@ -397,6 +439,23 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     for metric in norm_metrics:
         print(norm_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean(
             ).reset_index().pivot(index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
+
+    print('\n-- Runtime --')
+
+    print('\n## Table 5: Mean runtime over number of alternatives, by dissimilarity threshold',
+          'and subgroup-discovery method ##\n')
+    print_results = eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[
+        'fitting_time'].mean()
+    print_results = print_results.reset_index().pivot(index=['sd_name', 'param.tau_abs'],
+                                                      columns='alt.number')
+    print_results = print_results.droplevel(None, axis='columns')  # only included "fitting_time"
+    print(print_results.style.format('{:.1f}~s'.format).to_latex(hrules=True, multirow_align='t'))
+
+    print('\nHow is the number of finished SMT tasks distributed over the number of alternative',
+          'and the dissimilarity threshold?')
+    print(eval_results[eval_results['sd_name'] == 'SMT'].groupby(['alt.number', 'param.tau_abs'])[
+        'optimization_status'].agg(lambda x: (x == 'sat').sum() / len(x)).rename('').reset_index(
+            ).pivot(index='alt.number', columns='param.tau_abs').applymap('{:.1%}'.format))
 
 
 # Parse some command-line arguments and run the main routine.
