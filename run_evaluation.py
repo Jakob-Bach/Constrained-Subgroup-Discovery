@@ -16,8 +16,10 @@ import matplotlib.ticker
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import sklearn.datasets
 
 import data_handling
+import sd
 
 
 plt.rcParams['font.family'] = 'Arial'
@@ -65,6 +67,37 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     results['param.k'] = results['param.k'].astype('object').fillna(max_k)
     max_timeout = results['param.timeout'].max()
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
+
+    print('\n-------- Introduction --------')
+
+    X, y = sklearn.datasets.load_iris(as_frame=True, return_X_y=True)
+    X = X[['petal length (cm)', 'petal width (cm)']]
+    X.columns = [f'Feature_{j + 1}' for j in range(X.shape[1])]
+    y = (y == 1).astype(int).rename('Target')
+    plot_data = pd.concat((X, y.astype(str)), axis='columns')
+
+    model = sd.MORSSubgroupDiscoverer(k=2)
+    model.fit(X=X, y=y)
+
+    print('What are the bounds for the exemplary subgroup?')
+    print(model.get_box_lbs())
+    print(model.get_box_ubs())
+    j_1, j_2 = model.get_selected_feature_idxs()
+
+    # Figure 1: Exemplary subgroup description
+    plt.figure(figsize=(8, 3))
+    plt.rcParams['font.size'] = 15
+    sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
+                    data=plot_data, palette='Set2')
+    plt.vlines(x=(model.get_box_lbs()[j_1], model.get_box_ubs()[j_1]),
+               ymin=model.get_box_lbs()[j_2], ymax=model.get_box_ubs()[j_2],
+               colors=sns.color_palette('Set2', 2)[1])
+    plt.hlines(y=(model.get_box_lbs()[j_2], model.get_box_ubs()[j_2]),
+               xmin=model.get_box_lbs()[j_1], xmax=model.get_box_ubs()[j_1],
+               colors=sns.color_palette('Set2', 2)[1])
+    plt.gca().set_aspect('equal')
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'csd-exemplary-subgroup.pdf')
 
     print('\n-------- Experimental Design --------')
 
@@ -133,7 +166,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 1a, 1b: Subgroup quality by subgroup-discovery method
+    # Figures 2a, 2b: Subgroup quality by subgroup-discovery method
     plot_results = eval_results[['dataset_name', 'sd_name', 'train_nwracc', 'test_nwracc']]
     plot_results = plot_results.melt(id_vars=['sd_name', 'dataset_name'], value_name='nWRAcc',
                                      value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
@@ -207,7 +240,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
 
-    # Figure 2a: Number of finished SMT tasks over timeouts, by feature cardinality
+    # Figure 3a: Number of finished SMT tasks over timeouts, by feature cardinality
     plot_results = print_results.copy()
     plot_results['param.timeout'] = plot_results['param.timeout'].astype(int)  # Int64 doesn't work
     plt.figure(figsize=(4, 3))
@@ -259,7 +292,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
           '(with maximum cardinality)?')
     print(print_results[evaluation_metrics].mean().round(3))
 
-    # Figure 2b: Subgroup quality over timeouts
+    # Figure 3b: Subgroup quality over timeouts
     plot_results = eval_results[['param.timeout', 'train_nwracc', 'test_nwracc']]
     plot_results = plot_results.melt(id_vars=['param.timeout'], value_name='nWRAcc',
                                      value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
@@ -323,7 +356,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 3a, 3b: Subgroup quality over cardinality, by subgroup-discovery method
+    # Figures 4a, 4b: Subgroup quality over cardinality, by subgroup-discovery method
     plot_results = eval_results[['sd_name', 'param.k', 'train_nwracc', 'test_nwracc']].copy()
     plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
     for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
@@ -380,7 +413,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup similarity --')
 
-    # Figures 4a, 4b: Subgroup similarity over number of alternatives, by dissimilarity threshold
+    # Figures 5a, 5b: Subgroup similarity over number of alternatives, by dissimilarity threshold
     # and subgroup-discovery method
     plot_results = eval_results.copy()
     plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
@@ -407,7 +440,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 5a, 5b: Subgroup quality over number of alternatives, by dissimilarity threshold
+    # Figures 6a, 6b: Subgroup quality over number of alternatives, by dissimilarity threshold
     # and subgroup-discovery method
     for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
         plt.figure(figsize=(5, 5))
