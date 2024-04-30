@@ -104,28 +104,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n------ Datasets ------')
 
-    print('\n## Table 1: Dataset overview ##\n')
-    print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
-        columns={'dataset': 'Dataset', 'n_instances': '$m$', 'n_features': '$n$'})
-    print_results['max-k'] = print_results['Dataset'].apply(
-        lambda dataset_name: (results.loc[
-            (results['dataset_name'] == dataset_name) & (results['sd_name'] == 'SMT') &
-            (results['param.timeout'] == max_timeout) & (results['param.k'] == max_k) &
-            results['alt.number'].isna(), 'optimization_status'] != 'sat').any())
-    print_results['any-k'] = print_results['Dataset'].apply(
-        lambda dataset_name: (results.loc[
-            (results['dataset_name'] == dataset_name) & (results['sd_name'] == 'SMT') &
-            (results['param.timeout'] == max_timeout) &
-            results['alt.number'].isin([pd.NA, 0]) &
-            results['param.tau_abs'].isin([pd.NA, min_tau_abs]),
-            'optimization_status'] != 'sat').any())
-    print_results.replace({False: 'No', True: 'Yes'}, inplace=True)
-    print_results['Dataset'] = print_results['Dataset'].str.replace('GAMETES', 'G')
-    print_results['Dataset'] = print_results['Dataset'].str.replace('_Epistasis', 'E')
-    print_results['Dataset'] = print_results['Dataset'].str.replace('_Heterogeneity', 'H')
-    print_results.sort_values(by='Dataset', key=lambda x: x.str.lower(), inplace=True)
-    print(print_results.style.format(escape='latex', precision=2).hide(axis='index').to_latex(
-        hrules=True))
+    print('\nHow many instances and features do the datasets have?')
+    print(dataset_overview[['n_instances', 'n_features']].describe().round().astype(int))
 
     print('\n-------- Evaluation --------')
 
