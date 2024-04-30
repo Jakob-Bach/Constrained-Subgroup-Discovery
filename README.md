@@ -1,10 +1,16 @@
 # Constrained Subgroup Discovery
 
-This repository contains the code of the paper
+This repository contains the code of two papers:
 
-> Bach, Jakob. "Constrained Subgroup Discovery"
+> Bach, Jakob. "Using Constraints to Discover Sparse and Alternative Subgroup Descriptions"
 
-(The paper is not published yet.
+(To be published on arXiv.
+Once it's published, we'll add a link to it here.
+We'll link the experimental data, too.)
+
+> Bach, Jakob, and Klemens Böhm. "..."
+
+(To be published at a conference or in a journal.
 Once it's published, we'll add a link to it here.
 We'll link the experimental data, too.)
 
@@ -17,7 +23,7 @@ This document provides:
 
 ## Repo Structure
 
-Currently, the repository contains five Python files and four non-code files.
+Currently, the repository contains six Python files and four non-code files.
 The non-code files are:
 
 - `.gitignore`: For Python development.
@@ -25,11 +31,11 @@ The non-code files are:
 - `README.md`: You are here :upside_down_face:
 - `requirements.txt`: To set up an environment with all necessary dependencies; see below for details.
 
-Four of the code files are directly related to our experiments (see below for details):
+Five of the code files are directly related to our experiments (see below for details):
 
 - `prepare_datasets.py`: First stage of the experiments (download prediction datasets).
 - `run_experiments.py`: Second stage of the experiments (run subgroup discovery).
-- `run_evaluation.py`: Third stage of the experiments (compute statistics and create plots for the paper).
+- `run_evaluation_(arxiv|short).py`: Third stage of the experiments (compute statistics and create plots for the paper).
 - `data_handling.py`: Functions for working with prediction datasets and experimental data.
 
 `sd.py` files contain classes and functions for optimal subgroup discovery and may also be used as standalone module.
@@ -319,8 +325,17 @@ Depending on your hardware, this might take some time.
 To print statistics and create the plots for the paper, run
 
 ```bash
-python -m run_evaluation
+python -m run_evaluation_arxiv
 ```
+
+or
+
+```bash
+python -m run_evaluation_short
+```
+
+(The short version is more focused and therefore contains less evaluations.
+Also, the plots are formatted a bit differently.)
 
 All scripts have a few command-line options, which you can see by running the scripts like
 
