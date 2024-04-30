@@ -23,7 +23,7 @@ import data_handling
 import sd
 
 
-plt.rcParams['font.family'] = 'Arial'
+plt.rcParams['font.family'] = 'Linux Biolinum'  # fits to serif font "Libertine" from ACM template
 
 
 # Sum the number of unique values over all features in a dataset.
@@ -86,8 +86,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     j_1, j_2 = model.get_selected_feature_idxs()
 
     # Figure 1: Exemplary subgroup description
-    plt.figure(figsize=(8, 3))
-    plt.rcParams['font.size'] = 15
+    plt.figure(figsize=(4, 3))
+    plt.rcParams['font.size'] = 10
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
                     data=plot_data, palette='Set2')
     plt.vlines(x=(model.get_box_lbs()[j_1], model.get_box_ubs()[j_1]),
