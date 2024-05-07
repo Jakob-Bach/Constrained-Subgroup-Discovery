@@ -17,13 +17,13 @@ We'll link the experimental data, too.)
 This document provides:
 
 - An outline of the [repo structure](#repo-structure).
-- A short [demo](#demo) of the core functionality.
+- A short [overview and demo](#functionality-and-demo) of the core (subgroup-discovery) functionality.
 - [Guidelines for developers](#developer-info) who want to modify or extend the code base.
 - Steps for [setting up](#setup) a virtual environment and [reproducing](#reproducing-the-experiments) the experiments.
 
 ## Repo Structure
 
-Currently, the repository contains six Python files and four non-code files.
+Currently, the repository contains seven Python files and four non-code files.
 The non-code files are:
 
 - `.gitignore`: For Python development.
@@ -31,43 +31,60 @@ The non-code files are:
 - `README.md`: You are here :upside_down_face:
 - `requirements.txt`: To set up an environment with all necessary dependencies; see below for details.
 
-Five of the code files are directly related to our experiments (see below for details):
+Six of the code files comprise our experimental pipeline (see below for details):
 
 - `prepare_datasets.py`: First stage of the experiments (download prediction datasets).
+- `prepare_demo_datasets.py`: Alternative script for the first stage of the experiments,
+  preparing fewer and smaller datasets (used in some preliminary benchmarking experiments).
 - `run_experiments.py`: Second stage of the experiments (run subgroup discovery).
 - `run_evaluation_(arxiv|short).py`: Third stage of the experiments (compute statistics and create plots for the paper).
 - `data_handling.py`: Functions for working with prediction datasets and experimental data.
 
-`sd.py` files contain classes and functions for optimal subgroup discovery and may also be used as standalone module.
+In contrast, `sd.py` files contain classes and functions for subgroup discovery and may also be used as a standalone module.
 
-## Demo
+## Functionality and Demo
 
 Currently, we provide seven subgroup-discovery methods as classes in `sd.py`:
 
-- exact optimization: `MIPSubgroupDiscoverer`, `SMTSubgroupDiscoverer`
-- heuristics: `BeamSearchSubgroupDiscoverer`, `BestIntervalSubgroupDiscoverer`, `PRIMSubgroupDiscoverer`
-- baselines: `MORSSubgroupDiscoverer`, `RandomSubgroupDiscoverer`
+- solver-based search: `MIPSubgroupDiscoverer`, `SMTSubgroupDiscoverer`
+- heuristic search: `BeamSearchSubgroupDiscoverer`, `BestIntervalSubgroupDiscoverer`, `PRIMSubgroupDiscoverer`
+- baselines (simple heuristics): `MORSSubgroupDiscoverer`, `RandomSubgroupDiscoverer`
 
-The heuristics are from literature or adaptations from other packages, while we conceived the remaining methods.
+The heuristics are from literature or adaptations from other packages,
+while we conceived the solver-based methods and baselines.
+All subgroup-discovery methods can discover subgroups (who would have guessed?),
+while some of them can also find alternative subgroup descriptions.
+
+Further, we provide four evaluation metrics for binary (`bool` or `int`) subgroup-membership vectors of data objects:
+
+- `wracc()`: Weighted Relative Accuracy
+- `nwracc()`: Weighted Relative Accuracy normalized to `[-1, 1]`
+- `jaccard()`: Jaccary similarity (1 - Jaccard distance)
+- `hamming()`: Normalized Hamming similarity (1 - Hamming distance normalized to `[0, 1]`; equals prediction accuracy)
+
+For each of them, there is a general version (accepting `pd.Series`, `np.array`, or even simpler sequences like plain lists)
+and a faster, `numpy`-specfic version with the same functionality (suffixed `_np`).
+
+### Discovering (Original) Subgroups
 
 Using a subgroup-discovery method from `sd.py` is similar to working with prediction models from `scikit-learn`.
 All subgroup-discovery methods are implemented as subclasses of `SubgroupDiscoverer` and provide the following functionality:
 
 - `fit(X, y)` and `predict(X)`, as in `scikit-learn`, working with `pandas.DataFrame` and `pandas.Series`
 - `evaluate(X_train, y_train, X_test, y_test)`, which combines fitting and prediction on a train-test split of a dataset
-- `get_box_lbs()` and `get_box_ubs()`, which return the lower and upper bounds on features for the subgroup (as `pandas.Series`)
-- `is_feature_selected()` and `get_selected_feature_idxs()`, which provide informationon on selected (restricted) features in the subgroup (as lists)
+- `get_box_lbs()` and `get_box_ubs()`, which return the lower and upper bounds on features in the subgroup description (as `pandas.Series`)
+- `is_feature_selected()` and `get_selected_feature_idxs()`, which provide information on selected (= restricted, used) features in the subgroup description (as lists)
 
 The actual subgroup discovery occurs during fitting.
-The passed dataset has to be purely numeric (categorical columns should be encoded) with a binary target,
-with class label `1` being the class of interest and `0` being the other class.
-Any parameters for the search have to be passed beforehand,
-i.e., when initializing the instance of the subgroup-discovery method.
+The passed dataset has to be purely numeric (categorical columns should be encoded accordingly) with a binary target,
+with the class label `1` being the class of interest and `0` being the other class.
+Any parameters for the search have to be passed before fitting,
+i.e., already when initializing the instance of the subgroup-discovery method.
 While some parameters are specific to the subgroup-discovery method,
-all existing methods have a parameter `k` to limit (upper bound) the number of features selected (restricted) in the subgroup.
+all existing methods have a parameter `k` to limit (upper bound) the number of features selected in the subgroup description.
 The prediction routine classifies data objects as belonging to the subgroup (= 1) or not (= 0).
-`sd.py` also contains functions to evaluate predictions (`wracc()`, `jaccard()`, and `hamming()`),
-but metrics for binary classification from `sklearn.metrics` should work as well.
+`sd.py` also contains functions to evaluate predictions,
+though metrics for binary classification from `sklearn.metrics` should work as well.
 
 Here is a small example for initialization, fitting, prediction, and evaluation:
 
@@ -101,12 +118,12 @@ Upper bounds: [7.0, inf, 5.1, 1.7]
 ```
 
 Beam search optimizes Weighted Relative Accuracy (WRAcc), so objective value and train WRAcc (without rounding) are equal.
-The `optimization_status` only plays a role for exact (optimizer-based) subgroup-discovery methods.
+The `optimization_status` only is relevant for solver-based subgroup-discovery methods.
 If a feature is not restricted regarding lower or upper bound, the corresponding bounds are infinite.
 
 `evaluate()` combines fitting, prediction, and evaluation:
 
-```
+```python
 import sd
 import sklearn.datasets
 import sklearn.model_selection
@@ -139,15 +156,19 @@ selected_feature_idxs                [0, 2, 3]
 ```
 
 Fitting time may be higher than optimization time since it also includes preparing optimization and the results object.
-However, except for exact optimization (where entering all constraints into the optimizer may take some time),
+However, except for solver-based optimization (where entering all constraints into the solver may take some time),
 the difference between optimization time and fitting time should be marginal.
+The evaluation routine computes WRAcc, whose minimum and maximum depend on the class imbalance in the dataset,
+as well as nWRAcc, which is normalized to `[-1, 1]`.
+
+### Discovering Alternative Subgroup Descriptions
 
 Additionally, subgroup-discovery methods inheriting from `AlternativeSubgroupDiscoverer`
-(currenty only `BeamSearchSubgroupDiscoverer` and `SMTSubgroupDiscoverer`)
+(currently only `BeamSearchSubgroupDiscoverer` and `SMTSubgroupDiscoverer`)
 can search alternative subgroup descriptions with the method `search_alternative_descriptions()`.
 Before starting this search, you should set `a` (number of alternatives) and
 `tau_abs` (number of previously selected features that must not be selected again) in the initializer.
-Also, we highly recommend to limit the number of selected features with the parameter `k` in the initializer,
+Also, we highly recommend limiting the number of selected features with the parameter `k` in the initializer,
 so there are still enough unselected features that may be selected in the alternatives instead.
 
 ```python
@@ -183,7 +204,7 @@ alt.number              0     1     2     3     4
 ```
 
 The first subgroup (with an `alt.number` of `0`) is the same as if using the conventional `fit()` routine.
-The objective value corresponds to train WRAcc for this subgroup and Hamming similarity for the subsequent subgroups.
+The objective value corresponds to train WRAcc for this subgroup and normalized Hamming similarity for the subsequent subgroups.
 You can see that the similarity of alternative subgroup descriptions to the original subgroup
 (`alt.hamming` and `alt.jaccard`) decreases over the number of alternatives (`alt.number`),
 as does the WRAcc on the training set and test set.
@@ -191,37 +212,47 @@ as does the WRAcc on the training set and test set.
 ## Developer Info
 
 If you want to add another subgroup-discovery method, make it a subclass of `SubgroupDiscoverer`.
-You need to override the `fit()` method such that it sets the fields `_box_lbs` and `_box_ubs`
-to contain the lower and upper bounds on features in the subgroup (as `pandas.Series`).
+As a minimum, you should
+
+- add the initializer `__init__()` to set parameters of your subgroup-discovery method
+  (also call `super().__init__()` for the initialization from the superclass) and
+- override the `fit()` method to search for subgroups.
+
+`fit()` needs to set the fields `_box_lbs` and `_box_ubs` (inherited from the superclass)
+to contain the features' lower and upper bounds in the subgroup description (as `pandas.Series`).
+If `_box_lbs` and `_box_ubs` are set as fields, `predict()` works automatically with these bounds and need not be overridden.
+For integration into the experimental pipeline, `fit()` should also return a dictionary
+with the keys `objective_value`, `optimization_status` (may be `None`), and `optimization_time`.
 If your subgroup-discovery method is not tailored towards a specific objective,
 you may use the top-level functions `wracc()` or `wracc_np()` from `sd.py` to guide the search
 (the former is slower but supports more data types, the latter is tailored to `numpy` arrays and faster).
-If `_box_lbs` and `_box_ubs` are set, `predict()` works automatically with these bounds and need not be overridden.
-To maintain full compatibility to all other subgroup-discovery methods,
+
+To support feature-cardinality constraints, like the other subgroup-discovery methods,
 you may want to allow setting an upper bound on the number of selected features `k`
 during initialization and observing it during fitting.
 We propose to store `k` in a field called `_k`;
 however, it is not used in the methods of superclass `SubgroupDiscoverer`.
-All other parameters for the subgroup-discovery method should also be set in the initializer and stored in fields.
-Make sure to also call the initializer of the superclass when implementing the initializer of your class.
 
 If your subgroup-discovery method should also support the search for alternative subgroup descriptions,
 make it a subclass of `AbstractSubgroupDiscoverer` (which inherits from `SubgroupDiscoverer`).
 The search for alternatives and the fitting routine are already implemented there.
 In particular, `fit()` dispatches to the method `_optimize()`, which you need to override.
 The latter should both be able to
-- search for the original subgroup, optimizing WRAcc or another notion of subgroup quality
+
+- search for the original subgroup, optimizing WRAcc or another notion of subgroup quality and
 - search for alternative subgroup descriptions by
-  - optimizing Hamming similarity (see top-level functions `hamming()` and `hamming_np` in `sd.py`)
-    to original subgroup (or another notion of subgroup similarity),
+  - optimizing normalized Hamming similarity (see top-level functions `hamming()` and `hamming_np` in `sd.py`)
+    to the original subgroup (or another notion of subgroup similarity) and
   - having constraint that at least `tau_abs` features from each previous subgroup description need to be de-selected
-    (though not more features than actually were selected, to prevent infeasibilities)
-Your implementation of `_optimize()` has to switch the objective and add the constraints for alternatives.
+    (though not more features than actually were selected, to prevent infeasibilities).
+
+Your implementation of `_optimize()` has to automatically switch the objective and add the constraints for alternatives if necessary.
 The method's parameters `was_feature_selected_list` and `was_instance_in_box` tell you, if not `None`,
 that you should search for an alternative subgroup description; else, search for the original subgroup.
-Additionally, you should add parameters `a` and `tau_abs` in the initializer, storing them in the fields `_a` and `_tau_abs`.
-The latter two fields are used in `evaluate()` (to decide whether to search only for an original subgroup
-or also for alternative subgroup descriptions).
+Additionally, you should add parameters `a` and `tau_abs` in the initializer of your subgroup-discovery class,
+storing them in the fields `_a` and `_tau_abs`.
+The latter two fields are automatically used in `evaluate()` (to decide whether to search only for an original subgroup
+or also for alternative subgroup descriptions) and should be used in your implementation of `_optimize()`.
 
 ## Setup
 
@@ -234,7 +265,7 @@ Our code is implemented in Python (version 3.8; other versions, including lower 
 
 ### Option 1: `conda` Environment
 
-If you use `conda`, you can directly install the correct Python version into a new `conda` environment
+If you use [`conda`](https://conda.io/), you can directly install the correct Python version into a new `conda` environment
 and activate the environment as follows:
 
 ```bash
@@ -334,7 +365,7 @@ or
 python -m run_evaluation_short
 ```
 
-(The short version is more focused and therefore contains less evaluations.
+(The short version is more focused and therefore contains fewer evaluations.
 Also, the plots are formatted a bit differently.)
 
 All scripts have a few command-line options, which you can see by running the scripts like
