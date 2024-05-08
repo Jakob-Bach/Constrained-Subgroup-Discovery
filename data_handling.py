@@ -47,7 +47,7 @@ def split_for_pipeline(X: pd.DataFrame, y: pd.Series, n_splits: int = 5)\
 
 
 # Return the path of the file containing either complete experimental results or only a particular
-# combination of dataset, fold, and subgroup-discovery method.
+# combination of dataset, cross-validation fold, and subgroup-discovery method.
 def get_results_file_path(directory: pathlib.Path, dataset_name: Optional[str] = None,
                           split_idx: Optional[int] = None, sd_name: Optional[str] = None) -> pathlib.Path:
     if (dataset_name is not None) and (split_idx is not None) and (sd_name is not None):
@@ -55,7 +55,8 @@ def get_results_file_path(directory: pathlib.Path, dataset_name: Optional[str] =
     return directory / '_results.csv'
 
 
-# Load either complete results or only a particular combi of dataset, fold, and subgroup discovery.
+# Load either complete results or only a particular combination of dataset, cross-validation fold,
+# and subgroup-discovery method.
 def load_results(directory: pathlib.Path, dataset_name: Optional[str] = None,
                  split_idx: Optional[int] = None, sd_name: Optional[str] = None) -> pd.DataFrame:
     results_file = get_results_file_path(directory=directory, dataset_name=dataset_name,

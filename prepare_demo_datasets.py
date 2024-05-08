@@ -24,14 +24,14 @@ SYN_DATASETS_N_FEATURES = [10, 20, 40]
 TOY_DATASETS_NAMES = ['breast_cancer', 'digits', 'iris', 'wine']
 
 
-# Main-routine: download, pre-process, and save (to "data_dir") datasets from PMLB.
+# Main routine: Pre-process and save (to "data_dir") datasets from scikit-learn.
 def prepare_datasets(data_dir: pathlib.Path) -> None:
     if not data_dir.is_dir():
         print('Dataset directory does not exist. We create it.')
         data_dir.mkdir(parents=True)
     if any(data_dir.iterdir()):
         print('Dataset directory is not empty. Files might be overwritten, but not deleted.')
-    dataset_overview = []
+    dataset_overview = []  # gets a subset of the columns used in PMLB's integrated dataset summary
 
     print('Saving toy datasets ...')
     for dataset_name in tqdm.tqdm(TOY_DATASETS_NAMES):
@@ -46,7 +46,7 @@ def prepare_datasets(data_dir: pathlib.Path) -> None:
                                                                     SYN_DATASETS_N_FEATURES))):
         X, y = sklearn.datasets.make_classification(n_samples=n_instances, n_features=n_features,
                                                     n_classes=2, random_state=25)
-        X = pd.DataFrame(X, columns=[f'Feature_{i + 1}' for i in range(n_features)])
+        X = pd.DataFrame(X, columns=[f'Feature_{j + 1}' for j in range(n_features)])
         y = pd.Series(y, name='target')
         dataset_name = f'syn_{n_instances}_{n_features}'
         data_handling.save_dataset(X=X, y=y, dataset_name=dataset_name, directory=data_dir)

@@ -1,4 +1,4 @@
-"""Run evaluation
+"""Run short evaluation
 
 Script to compute summary statistics and create plots + tables for the short version of the paper.
 Should be run after the experimental pipeline, as this evaluation script requires the pipeline's
@@ -24,22 +24,16 @@ import sd
 plt.rcParams['font.family'] = 'Linux Biolinum'  # fits to serif font "Libertine" from ACM template
 
 
-# Sum the number of unique values over all features in a dataset.
-def sum_unique_values(dataset_name: str, data_dir: pathlib.Path) -> int:
-    X, _ = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
-    return X.nunique().sum()
-
-
-# Main-routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
+# Main routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
 # and some dataset information from "data_dir". Save plots to the "plot_dir". Print some statistics
-# to the console.
+# and LaTeX-ready tables to the console.
 def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathlib.Path) -> None:
     if not results_dir.is_dir():
         raise FileNotFoundError('The results directory does not exist.')
     if not plot_dir.is_dir():
         print('The plot directory does not exist. We create it.')
         plot_dir.mkdir(parents=True)
-    if any(plot_dir.glob('*.pdf')):
+    if any(plot_dir.iterdir()):
         print('The plot directory is not empty. Files might be overwritten but not deleted.')
 
     results = data_handling.load_results(directory=results_dir)
@@ -49,7 +43,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     results['nwracc_train_test_diff'] = results['train_nwracc'] - results['test_nwracc']
     evaluation_metrics = ['fitting_time', 'train_nwracc', 'test_nwracc', 'nwracc_train_test_diff']
     alt_evaluation_metrics = ['alt.hamming', 'alt.jaccard']
-    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'PRIM', 'MORB', 'Random']
+    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'PRIM', 'MORS', 'Random']
 
     # Define constants for filtering results:
     int_na_columns = ['param.k', 'param.timeout', 'param.tau_abs', 'alt.number']
@@ -60,6 +54,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
     print('\n-------- Introduction --------')
+
+    print('\n-- Motivation --')
 
     X, y = sklearn.datasets.load_iris(as_frame=True, return_X_y=True)
     X = X[['petal length (cm)', 'petal width (cm)']]
@@ -92,7 +88,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-------- Experimental Design --------')
 
-    print('\n------ Datasets ------')
+    print('\n-- Datasets --')
 
     print('\nHow many instances and features do the datasets have?')
     print(dataset_overview[['n_instances', 'n_features']].describe().round().astype(int))
@@ -121,9 +117,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
                 index='param.k', columns='sd_name').round(3))
 
-    print('\n-- Subgroup quality --')
+    print('\n-- Training-set and test-set subgroup quality --')
 
-    # Figures 2a, 2b: Subgroup quality over cardinality, by subgroup-discovery method
+    # Figures 2a, 2b: Subgroup quality over cardinality "k", by subgroup-discovery method
     plot_results = eval_results[['sd_name', 'param.k', 'train_nwracc', 'test_nwracc']].copy()
     plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
     for metric, metric_name in [('train_nwracc', 'Train nWRAcc'), ('test_nwracc', 'Test nWRAcc')]:
@@ -152,13 +148,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results.columns.name = '$k$'
     print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
 
-    print('\n---- Timeout analysis for "Subgroup quality" ----')
+    print('\n---- Timeout analysis for "Training-set subgroup quality" ----')
 
     print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
     eval_results = results.loc[(results['sd_name'] == 'SMT') &
                                results['alt.number'].isin([pd.NA, 0]) &
-                               results['param.tau_abs'].isin([pd.NA, min_tau_abs]),
-                               ['param.k', 'param.timeout', 'optimization_status']].copy()
+                               results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
     print_results = eval_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
@@ -227,7 +222,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
     plot_results['param.tau_abs'] = plot_results['param.tau_abs'].astype(int)
     plot_results.rename(columns={'sd_name': '_sd_name', 'param.tau_abs': '_param.tau_abs'},
-                        inplace=True)
+                        inplace=True)  # underscore hides these labels in legend
     for metric, metric_name, yticks in [
             ('alt.hamming', 'Norm. Ham. sim.', np.arange(start=0.8, stop=1.05, step=0.1)),
             ('alt.jaccard', 'Jaccard sim.', np.arange(start=0.2, stop=1.05, step=0.2)),
@@ -264,8 +259,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
 # Parse some command-line arguments and run the main routine.
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Creates paper\'s plots and prints statistics.',
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description='Creates the paper\'s plots + tables and prints statistics.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-d', '--data', type=pathlib.Path, default='data/datasets/', dest='data_dir',
                         help='Directory with prediction datasets in (X, y) form.')
     parser.add_argument('-r', '--results', type=pathlib.Path, default='data/results/',

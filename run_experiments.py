@@ -2,7 +2,8 @@
 
 Script to run the complete experimental pipeline. Should be run after dataset preparation, as the
 experiments require prediction datasets as inputs. Saves its results for evaluation. If some
-results already exist, only runs the missing experimental tasks.
+results already exist, only runs the missing experimental tasks (combinations of dataset,
+cross-validation fold, and subgroup-discovery method).
 
 Usage: python -m run_experiments --help
 """
@@ -22,15 +23,16 @@ import sd
 
 
 # Different components of the experimental design.
-N_FOLDS = 5  # cross-validation
+N_FOLDS = 5  # number of cross-validation folds
 SOLVER_TIMEOUTS = [2 ** x for x in range(12)]  # in seconds
 CARDINALITIES = [1, 2, 3, 4, 5, None]  # maximum number of features selected in subgroup
 ALT_CARDINALITIES = [3]  # cardinalities for which alternatives should be searched
 ALT_NUMBER = 5  # number of alternatives if alteratives should be searched
 
 
-# Define a list of subgroup-discovery methods, each comprising a subgroup-discovery method and a
-# list of (dictionaries containing) hyperparameter combinations used to initialize the method.
+# Define a list of subgroup-discovery methods for "define_experimental_tasks()", each element
+# comprising the method itself and a list of (dictionaries containing) hyperparameter combinations
+# used to initialize the method.
 def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[str, Any]]]]:
     card_args = [{'k': k} for k in CARDINALITIES]
     smt_args = []
@@ -58,23 +60,23 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
 
 
 # Define experimental tasks (for parallelization) as cross-product of datasets (from "data_dir"),
-# cross-validation folds, and subgroup-discovery methods (each including a method and several
-# hyperparameter settings). Only return tasks for which there is no results file in "results_dir".
-# Provide a dictionary for calling "evaluate_experimental_task()".
+# cross-validation folds, and subgroup-discovery methods (each including several hyperparameter
+# settings). Provide a dictionary for calling "evaluate_experimental_task()", only including tasks
+# for which there is no results file in "results_dir".
 def define_experimental_tasks(data_dir: pathlib.Path,
                               results_dir: pathlib.Path) -> Sequence[Dict[str, Any]]:
     experimental_tasks = []
-    sd_method_descriptions = define_sd_methods()
+    sd_method_settings = define_sd_methods()
     dataset_names = data_handling.list_datasets(directory=data_dir)
-    for dataset_name, split_idx, sd_method_description in itertools.product(
-            dataset_names, range(N_FOLDS), sd_method_descriptions):
+    for dataset_name, split_idx, sd_method_setting in itertools.product(
+            dataset_names, range(N_FOLDS), sd_method_settings):
         results_file = data_handling.get_results_file_path(
             directory=results_dir, dataset_name=dataset_name, split_idx=split_idx,
-            sd_name=sd_method_description['sd_name'])
+            sd_name=sd_method_setting['sd_name'])
         if not results_file.exists():
             experimental_tasks.append(
                 {'dataset_name': dataset_name, 'data_dir': data_dir, 'results_dir': results_dir,
-                 'split_idx': split_idx, **sd_method_description})
+                 'split_idx': split_idx, **sd_method_setting})
     return experimental_tasks
 
 
@@ -82,9 +84,9 @@ def define_experimental_tasks(data_dir: pathlib.Path,
 # dataset with the "dataset_name" from the "data_dir" and extract the "split_idx"-th split.
 # "sd_type" is a class representing the subgroup-discovery method, while "sd_name" is an arbitrary
 # (user-defined) name for the method and "sd_args_list" is a list of hyperparameter combinations
-# used to initialize the method, which will be tested sequentially.
+# used to initialize the method, which will be evaluated sequentially.
 # Return a DataFrame with various evaluation metrics, including parametrization of the search for
-# subgroups, runtime, and prediction performance. Additionally, save this data to "results_dir".
+# subgroups, runtime, and subgroup quality. Additionally, save this data to "results_dir".
 def evaluate_experimental_task(
         dataset_name: str, data_dir: pathlib.Path, results_dir: pathlib.Path, split_idx: int,
         sd_name: str, sd_type: Type[sd.SubgroupDiscoverer], sd_args_list: Sequence[Dict[str, Any]]) -> pd.DataFrame:
@@ -111,9 +113,9 @@ def evaluate_experimental_task(
     return results
 
 
-# Main-routine: Run complete experimental pipeline. To this end, read datasets from "data_dir",
+# Main routine: Run complete experimental pipeline. To this end, read datasets from "data_dir",
 # save results to "results_dir". "n_processes" controls parallelization (over datasets,
-# cross-validation folds, and subgroup-discovery methods).
+# cross-validation folds, and subgroup-discovery methods); by default, all cores used.
 def run_experiments(data_dir: pathlib.Path, results_dir: pathlib.Path,
                     n_processes: Optional[int] = None) -> None:
     if not data_dir.is_dir():

@@ -1,6 +1,6 @@
 """Subgroup discovery
 
-Classes for subgroup-discovery methods.
+Classes and functions for subgroup-discovery methods and evaluation metrics.
 """
 
 
@@ -15,8 +15,11 @@ import pandas as pd
 import z3
 
 
-# Computes the weighted relative accuracy (WRAcc) for two binary (bool or int) sequences (may also
-# be pd.Series or np.array) indicating class labels and predictions.
+# Compute the weighted relative accuracy (WRAcc) for two binary (bool or int) sequences (may also
+# be pd.Series or np.array) indicating class labels and predictions. The range of WRAcc is at most
+# [-0.25, 0.25] but actually depends on the class imbalance (becomes smaller if the classes are
+# more imbalanced).
+# Literature: Lavrac et al. (1999): "Rule Evaluation Measures: A Unifying View"
 def wracc(y_true: Sequence[bool], y_pred: Sequence[bool]) -> float:
     n_true_pos = sum(y_t and y_p for y_t, y_p in zip(y_true, y_pred))
     n_instances = len(y_true)
@@ -35,9 +38,11 @@ def wracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return n_true_pos / n_instances - n_pred_pos * n_actual_pos / (n_instances ** 2)
 
 
-# Computes the normalized weighted relative accuracy (nWRAcc) for two binary (bool or int)
+# Compute the normalized weighted relative accuracy (nWRAcc) for two binary (bool or int)
 # sequences (may also be pd.Series or np.array) indicating class labels and predictions.
-# This metric equals WRAcc divided by its maximum (= product of class probabilities).
+# This metric equals WRAcc divided by its maximum (= product of class probabilities) and therefore
+# always has the range [-1, 1], no matter how imbalanced the two classes are.
+# Literature: Mathonat et al. (2021): "Anytime Subgroup Discovery in High Dimensional Numerical Data"
 def nwracc(y_true: Sequence[bool], y_pred: Sequence[bool]) -> float:
     n_true_pos = sum(y_t and y_p for y_t, y_p in zip(y_true, y_pred))
     n_instances = len(y_true)
@@ -60,8 +65,8 @@ def nwracc_np(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return enumerator / denominator
 
 
-# Computes the Jaccard similarity between two binary (bool or int) sequences (may also be pd.Series
-# or np.array) indicating set membership.
+# Compute the Jaccard similarity between two binary (bool or int) sequences (may also be pd.Series
+# or np.array) indicating set membership. Its range is [0, 1].
 def jaccard(set_1_indicators: Sequence[bool], set_2_indicators: Sequence[bool]) -> float:
     size_intersection = sum(i_1 and i_2 for i_1, i_2 in zip(set_1_indicators, set_2_indicators))
     size_union = sum(i_1 or i_2 for i_1, i_2 in zip(set_1_indicators, set_2_indicators))
@@ -76,8 +81,8 @@ def jaccard_np(set_1_indicators: np.ndarray, set_2_indicators: np.ndarray) -> fl
     return size_intersection / size_union if size_union != 0 else float('nan')
 
 
-# Computes the Hamming similarity between two sequences (may also be pd.Series or np.array),
-# normalized to [0, 1].
+# Compute the Hamming similarity, normalized to [0, 1], between two sequences (may also be
+# pd.Series or np.array). Its range is [0, 1].
 def hamming(sequence_1: Sequence[Any], sequence_2: Sequence[Any]) -> float:
     size_identical = sum(s_1 == s_2 for s_1, s_2 in zip(sequence_1, sequence_2))
     return size_identical / len(sequence_1)
@@ -92,34 +97,35 @@ def hamming_np(sequence_1: np.array, sequence_2: np.array) -> float:
 class SubgroupDiscoverer(metaclass=ABCMeta):
     """Subgroup-discovery method
 
-    The abstract base class for subgroup discovery. Defines a method signature for fitting, which
-    needs to be overridden in subclasses, and a prediction method (similar to scikit-learn models).
+    The abstract base class for subgroup-discovery methods. Defines an abstract method for fitting,
+    which needs to be overridden in subclasses, and a prediction method, which can be used as-is
+    (if fit() is implemented properly). Thus, the interface is similar to scikit-learn models.
     """
 
-    # Initializes fields for lower bounds and upper bounds of the subgroup's box. These fields need
+    # Initialize fields for lower bounds and upper bounds of the subgroup's box. These fields need
     # to be initialized in the fit() method (or the prediction method needs to be overridden).
     def __init__(self):
         self._box_lbs = None
         self._box_ubs = None
 
-    # Should run the subgroup-discovery method on the given data, i.e., update self's internal
-    # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs";
-    # if a feature is unbounded, -/+ inf should be used as bounds).
+    # Should run the subgroup-discovery method on the given data. In particular, update self's
+    # internal state appropriately for predictions later by setting the fields "self._box_lbs" and
+    # "self._box_ubs" as pd.Series; if a feature is unbounded, -/+ inf should be used as bounds.
     # Should return meta-data about the fitting process, i.e., a dictionary with keys
     # "objective_value", "optimization_time", and "optimization_status".
     @abstractmethod
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         raise NotImplementedError('Abstract method.')
 
-    # Returns the lower bounds of the subgroup's box.
+    # Return the lower bounds of the subgroup's box.
     def get_box_lbs(self) -> pd.Series:
         return self._box_lbs
 
-    # Returns the upper bounds of the subgroup's box.
+    # Return the upper bounds of the subgroup's box.
     def get_box_ubs(self) -> pd.Series:
         return self._box_ubs
 
-    # Return binary sequence indicating for each feature if selected (restricted) in subgroup.
+    # Return a binary sequence indicating for each feature if selected (restricted) in subgroup.
     def is_feature_selected(self) -> Sequence[bool]:
         return ((self.get_box_lbs() != float('-inf')) |
                 (self.get_box_ubs() != float('inf'))).to_list()
@@ -128,8 +134,8 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
     def get_selected_feature_idxs(self) -> Sequence[int]:
         return [j for j, is_selected in enumerate(self.is_feature_selected()) if is_selected]
 
-    # Returns a series of predicted class labels (1 for instances in the box, else 0). Should only
-    # be called after fit() since the box is undefined otherwise.
+    # Return a pd.Series of predicted class labels (1 for instances in the box, else 0).
+    # Should only be called after fit() since the box is undefined otherwise.
     def predict(self, X: pd.DataFrame) -> pd.Series:
         return pd.Series((X.ge(self.get_box_lbs()) & X.le(self.get_box_ubs())).all(
             axis='columns').astype(int), index=X.index)
@@ -142,9 +148,9 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
             prediction = prediction & (X[:, j] >= self._box_lbs[j]) & (X[:, j] <= self._box_ubs[j])
         return prediction
 
-    # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
-    # Returns a data frame with evaluation metrics and bounds on features. Each row represents a
-    # subgroup; unless this method is overridden, there will be only one row/subgroup.
+    # Train, predict, and evaluate the subgroup-discovery method on a train-test split.
+    # Return a data frame with evaluation metrics and bounds on features as columns. Each row
+    # represents a subgroup; unless this method is overridden, there will be only one row/subgroup.
     def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
                  y_test: pd.Series) -> pd.DataFrame:
         start_time = time.process_time()
@@ -167,18 +173,21 @@ class SubgroupDiscoverer(metaclass=ABCMeta):
 class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
     """Subgroup-discovery method supporting alternatives
 
-    The abstract base class for subgroup-discovery methods that cannot only find one (optimal)
-    subgroup but also alternative descriptions for the optimal one. Implements the (formerly
+    The abstract base class for subgroup-discovery methods that cannot only find one original
+    subgroup but also alternative descriptions for the original one. Implements the (formerly
     abstract) fit() method by dispatching to a new abstract optimization method, which should be
     overridden to (based on the passed parameters) either find an orignal subgroup or alternative
     descriptions. evaluate() is also overridden to either perform the evaluate() routine from the
-    superclass (fit and evaluate optimal subgroup) or search for optimal subgroup + alternative
+    superclass (fit and evaluate original subgroup) or search for original subgroup + alternative
     descriptions, dispatching to a generic search routine that calls the new optimization method.
+    In particular, if _optimize() is implemented properly, this search routine for alternative
+    descriptions should also work in subclasses.
     """
 
     # Initialize fields.
-    # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
-    #   subgroup searched). Should only be set if "k" is set (else there may be no alternatives).
+    # - "a" is the number of alternative subgroup descriptions; if None, then none (only original
+    #   subgroup searched). Should only be set if feature cardinality "k" is set and processed in
+    #   subclass as well (else there may be no alternatives).
     # - "tau_abs" is the number of features selected in each existing subgroup description that
     #   should *not* be selected in alternative subgroup description; parameter should be set if
     #   and only if "a" is set.
@@ -189,14 +198,14 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
 
     # Should either find original subgroup (if only "X" and "y" are passed) or an alternative
     # subgroup description (if the optional arguments are passed). Should update self's internal
-    # state appropriately for predictions later (e.g., set "self._box_lbs" and "self._box_ubs").
+    # state appropriately for predictions later (i.e., set "self._box_lbs" and "self._box_ubs").
     # Should Return meta-data about the optimization process, i.e., a dictionary with keys
     # "objective_value", "optimization_time", and "optimization_status" (like fit() does).
-    # - "was_feature_selected_list": for each existing subgroup and each feature, indicate if
-    #   selected. An alternative subgroup should *not* select at least "self._tau_abs" features
-    #   from each existing subgroup.
-    # - "was_instance_in_box": for each instance, indicate if in existing subgroup.
-    #   An alternative subgroup should try to maximize the Hamming similarity to this prediction.
+    # - "was_feature_selected_list": for each existing subgroup description and each feature,
+    #   indicate if selected. An alternative subgroup description should deselect (*not* select)
+    #   at least "self._tau_abs" features from each existing subgroup description.
+    # - "was_instance_in_box": for each instance, indicate if in original subgroup. An alternative
+    #   subgroup should try to maximize the normalized Hamming similarity to this prediction.
     @abstractmethod
     def _optimize(self, X: pd.DataFrame, y: pd.Series,
                   was_feature_selected_list: Optional[Sequence[Sequence[bool]]] = None,
@@ -210,16 +219,17 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
         # descriptions; here, consistent to fit() in other classes, only one subgroup searched):
         return self._optimize(X=X, y=y, was_feature_selected_list=None, was_instance_in_box=None)
 
-    # Trains, predicts, and evaluates subgroup discovery multiple times on a train-test split of a
-    # dataset. Each of the "self._a" alternative subgroup descriptions should *not* use at least
-    # "self._tau_abs" features from each existing (previous) subgroup.
-    # The original subgroup should optimize WRAcc (subject to implementation of "_optimize()"), all
-    # subsequent subgroups should optimize Hamming similarity to the original one.
+    # Train, predict, and evaluate the subgroup-discovery method multiple times on a train-test
+    # split of a dataset. Each of the "self._a" alternative subgroup descriptions should deselect
+    # (*not* use) at least "self._tau_abs" features from each existing (previous) description.
+    # The original subgroup should optimize WRAcc or another measure of subgroup quality (subject
+    # to implementation of "_optimize()"), all subsequent subgroups should optimize normalized
+    # Hamming similarity to the original one or another measure of subgroup similarity.
     # Returns a data frame with evaluation metrics, each row corresponding to a subgroup.
     def search_alternative_descriptions(self, X_train: pd.DataFrame, y_train: pd.Series,
                                         X_test: pd.DataFrame, y_test: pd.Series) -> pd.DataFrame:
         was_feature_selected_list = []  # i-th entry corresponds to i-th subgroup (List[bool])
-        was_instance_in_box = None  # is instance in 0-th box? (List[Bool])
+        was_instance_in_box = None  # is instance in 0-th subgroup? (List[Bool])
         results = []
         for i in range(self._a + 1):
             start_time = time.process_time()
@@ -251,10 +261,10 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
             results.append(result)
         return pd.DataFrame(results)
 
-    # Trains, predicts, and evaluates subgroup discovery on a train-test split of a dataset.
-    # Returns a data frame with evaluation metrics and bounds on features. If the fields for
-    # alternatives are set ("_a" and "_tau_abs"), multiple subgroup descriptions are found (each
-    # constituting a row in the results), else only one (as is the default for the superclass).
+    # Train, predict, and evaluate the subgroup-discovery method on a train-test split of a
+    # dataset. Return a data frame with evaluation metrics and bounds on features. If the fields
+    # for alternatives are set ("_a" and "_tau_abs"), multiple subgroup descriptions are found
+    # each forming a row in the results), else only one (as is the default for the superclass).
     def evaluate(self, X_train: pd.DataFrame, y_train: pd.Series, X_test: pd.DataFrame,
                  y_test: pd.Series) -> pd.DataFrame:
         if (self._a is not None) and (self._tau_abs is not None):
@@ -265,21 +275,25 @@ class AlternativeSubgroupDiscoverer(SubgroupDiscoverer, metaclass=ABCMeta):
 
 
 class MIPSubgroupDiscoverer(SubgroupDiscoverer):
-    """MIP-based subgroup discovery method
+    """MIP-based subgroup-discovery method
 
-    White-box formulation of subgroup discovery as a Mixed Integer Programming (MIP) optimization
-    problem.
+    White-box formulation of subgroup discovery as a Mixed Integer (Linear) Programming (MIP)
+    optimization problem, which is tackled by a solver (SCIP via the package "mip").
     """
 
-    # Initialize fields. "timeout" should be indicated in seconds; if None, then no timeout.
-    # "k" is the maximum number of features that may be selected in the subgroup description.
+    # Initialize fields.
+    # - "timeout" should be indicated in seconds; if None, then no timeout.
+    # -  "k" is the maximum number of features that may be selected in the subgroup description;
+    #   if None, then all.
     def __init__(self, k: Optional[int] = None, timeout: Optional[float] = None):
         super().__init__()
         self._k = k
         self._timeout = timeout
 
     # Model and optimize subgroup discovery with Python-MIP. Return meta-data about the fitting
-    # process (see superclass for more details).
+    # process (see superclass for more details). The optimization status is 0 for the optimum
+    # without timeout, 1 for any (potentially suboptimal) solution (-> timeout), and 6 if no
+    # solution found yet (-> timeout).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
 
@@ -290,7 +304,10 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         feature_minima = X.min().to_list()
         feature_maxima = X.max().to_list()
         feature_diff_minima = X.apply(lambda col: pd.Series(col.sort_values().unique()).diff(
-            ).min()).fillna(0).to_list()  # fillna() covers case that all values identical
+            ).min()).fillna(0).to_list()
+        # fillna() covers the case that all values are identical, for which we want the the strict
+        # inequalities to become non-strict (else optimization problem infeasible since
+        # inequalities would enforce UB < LB)
 
         # Define optimizer:
         model = pywraplp.Solver.CreateSolver('SCIP')
@@ -326,8 +343,9 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         # (1) Identify for each instance if it is in the subgroup's box or not
         for i in range(n_instances):
             for j in range(n_features):
-                # Approach for modeling constraint satisfaction: Binary variables (here:
-                # "is_value_in_box_lb_vars[i][j]") indicate whether constraint satisfied
+                # Approach for modeling constraint satisfaction: Binary variables
+                # "is_value_in_box_lb_vars[i][j]" and "is_value_in_box_ub_vars[i][j]" indicate
+                # whether constraints "lb_j <= X_{ij}" and "X_{ij} <= ub_j"  satisfied
                 # https://docs.mosek.com/modeling-cookbook/mio.html#constraint-satisfaction
                 M = 2 * (feature_maxima[j] - feature_minima[j])  # large positive value
                 m = 2 * (feature_minima[j] - feature_maxima[j])  # large (absolute) negative value
@@ -397,18 +415,18 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
     """SMT-based subgroup-discovery method
 
     White-box formulation of subgroup discovery as a Satisfiability Modulo Theories (SMT)
-    optimization problem.
+    optimization problem, which is tackled by a solver (Z3 via the package "z3").
     """
 
     # Initialize fields.
     # - "timeout" should be indicated in seconds; if None, then no timeout.
     # - "k" is the maximum number of features that may selected in the subgroup description;
     #   if None, then all.
-    # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
+    # - "a" is the number of alternative subgroup descriptions; if None, then none (only original
     #   subgroup searched). Should only be set if "k" is set (else there may be no alternatives).
     # - "tau_abs" is the number of features selected in each existing subgroup description that
-    #   should *not* be selected in alternative subgroup description; parameter should be set if
-    #   and only if "a" is set.
+    #   should be deselected (*not* be selected) in alternative subgroup description; parameter
+    #   should be set if and only if "a" is set.
     def __init__(self, timeout: Optional[float] = None, k: Optional[int] = None,
                  a: Optional[int] = None, tau_abs: Optional[int] = None):
         super().__init__(a=a, tau_abs=tau_abs)
@@ -418,6 +436,7 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
     # Model and optimize subgroup discovery with Z3. Either find original subgroup (if only "X" and
     # "y" are passed) or an alternative subgroup description (if optional arguments are passed).
     # Return meta-data about the optimization process (see superclass for details).
+    # The optimization status is "sat" if the optimum was found and "unknown" if not (-> timeout).
     def _optimize(self, X: pd.DataFrame, y: pd.Series,
                   was_feature_selected_list: Optional[Sequence[Sequence[bool]]] = None,
                   was_instance_in_box: Optional[Sequence[bool]] = None) -> Dict[str, Any]:
@@ -519,8 +538,12 @@ class MORSSubgroupDiscoverer(SubgroupDiscoverer):
     """MORS (Minimal Optimal-Recall Subgroup) baseline for subgroup discovery
 
     Choose the bounds as the minimum and maximum feature value of positive instances, so the box
-    contains all positive instances and has the minimal size of all boxes doing so. Finds the
-    optimal solution if a box exists that contains all positive and no negative instances.
+
+    - contains all positive instances (i.e., has optimal recall) and
+    - has the minimal size of all boxes doing so, i.e., minimizes the number of false positives
+      (or, equivalently, maximizes the number of true negatives).
+
+    Finds a perfect subgroup (box containing all positive and no negative instances) if it exists.
     """
 
     # Initialize fields. "k" is the maximum number of features that may be selected in the subgroup
@@ -530,7 +553,8 @@ class MORSSubgroupDiscoverer(SubgroupDiscoverer):
         self._k = k
 
     # Choose the minimal box that still has optimal recall (= 1). Return meta-data about the
-    # fitting process (see superclass for more details).
+    # fitting process (see superclass for more details); does not explicitly compute its objective
+    # value, therefore "None" returned for this metric.
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         # "Optimization": Find minima and maxima of positive instances:
@@ -539,7 +563,7 @@ class MORSSubgroupDiscoverer(SubgroupDiscoverer):
         self._box_ubs = X[y == 1].max()
         if (self._k is not None) and (self._k < X.shape[1]):
             # Count the number of false positives (negative instances in box) in each feature's
-            # interval and reset the box for all features not in the bottom-k regardings FPs
+            # interval and reset the bounds for all features not in the bottom-k regardings FPs
             n_feature_fps = ((X[y == 0] >= self._box_lbs) & (X[y == 0] <= self._box_ubs)).sum()
             exclude_features = n_feature_fps.sort_values().index[self._k:]  # n-k highest
             self._box_lbs[exclude_features] = float('-inf')
@@ -549,7 +573,7 @@ class MORSSubgroupDiscoverer(SubgroupDiscoverer):
         # feature values in the given data, treat this value as unbounded
         self._box_lbs[self._box_lbs == X.min()] = float('-inf')
         self._box_ubs[self._box_ubs == X.max()] = float('inf')
-        return {'objective_value': None,  # picks bounds without computing an overall objective
+        return {'objective_value': None,  # methods picks bounds without computing its objective
                 'optimization_status': None,
                 'optimization_time': end_time - start_time}
 
@@ -557,18 +581,20 @@ class MORSSubgroupDiscoverer(SubgroupDiscoverer):
 class RandomSubgroupDiscoverer(SubgroupDiscoverer):
     """Random-sampling baseline for subgroup discovery
 
-    Choose the bounds repeatedly uniformly random from the unique values of each feature.
+    Choose bound candidates repeatedly uniformly random from the unique values of each feature and
+    return the sampled bounds with the highest WRAcc after a fixed number of iterations.
     """
 
-    # Initialize fields. "k" is the maximum number of features that may be selected in the subgroup
-    # description.
+    # Initialize fields.
+    # - "k" is the maximum number of features that may be selected in the subgroup description.
+    # - "n_iters" is the number of repetitions of random sampling.
     def __init__(self, k: Optional[int] = None, n_iters: int = 1000):
         super().__init__()
         self._k = k
         self._n_iters = n_iters
 
-    # Repeatedly sample random boxes and pick the best of them. Return meta-data about the fitting
-    # process (see superclass for more details).
+    # Repeatedly sample random boxes and pick the best of them after a fixed number of iterations.
+    # Return meta-data about the fitting process (see superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         unique_values_per_feature = [sorted(X[col].unique().tolist()) for col in X.columns]
@@ -612,13 +638,20 @@ class RandomSubgroupDiscoverer(SubgroupDiscoverer):
 class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
     """PRIM algorithm
 
-    Heuristic search procedure with a peeling phase (iteratively decreasing the range of the
-    subgroup) and a pasting phase (iteratively increasing the range of the subgroup).
-    In this version of the algorithm, only the peeling phase is implemented.
-    Similar to the PRIM implementation in prelim.sd.PRIM, but has a different termination condition
-    (min support instead of fixed iteration count combined with early-termination criterion),
-    handles bounds differently (always produces strict bounds first but converts to <=/>= later)
-    and supports a cardinality constraint on the number of restricted features.
+    Heuristic search procedure with a peeling phase (iteratively decreasing the bounds of the
+    subgroup) and a pasting phase (iteratively increasing the bounds of the subgroup). Here, we
+    only implement the peeling phase. It iteratively sets bounds (on one feature per iteration)
+    such that a fraction "alpha" of instances gets removed from the box. It continues till only
+    a certain fraction "beta_0" of instances remains in the box and returns the box with the
+    highest WRAcc from all iterations.
+
+    Our implementation is similar to the PRIM implementation in prelim.sd.PRIM, but
+
+    - has a different termination condition (min support, as in the original paper, instead of
+      a fixed iteration count combined with an early-termination criterion)
+    - handles bounds differently (always produces strict bounds first, as in the original paper,
+      but converts to <=/>= later, for compatibility with our other subgroup-discovery methods)
+    - supports a cardinality constraint on the number of restricted features
 
     Literature:
     - Friedman & Fisher (1999): "Bump hunting in high-dimensional data"
@@ -637,8 +670,9 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         self._beta_0 = beta_0
 
     # Iteratively peel off (at least) a fraction "_alpha" of the instances by moving one bound of
-    # one feature (choose best WRAcc); stop if empty box produced or support threshold "_beta_0"
-    # violated. Return meta-data about the fitting process (see superclass for more details).
+    # one feature (choose best WRAcc); stop if support threshold "_beta_0" violated (by default, if
+    # empty box produced, but can be set higher). Return meta-data about the fitting process (see
+    # superclass for more details).
     def fit(self, X: pd.DataFrame, y: pd.Series) -> Dict[str, float]:
         assert y.isin((0, 1, False, True)).all(), 'Target "y" needs to be binary (bool or int).'
         X_np = X.values  # working directly on numpy arrays rather than pandas sometimes way faster
@@ -653,7 +687,8 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         opt_box_ubs = self._box_ubs.copy()
         # Peeling continues as long as box contains certain number of instances:
         while np.count_nonzero(y_pred) / len(y_np) > self._beta_0:
-            # Note that peeling also changes "self._box_lbs" and "self._box_ubs"
+            # Note that peeling also changes values of "self._box_lbs" and "self._box_ubs"
+            # (i.e., these fields are updated once each iteration and represent current box)
             self._peel_one_step(X=X_np, y=y_np)
             y_pred = self.predict_np(X=X_np)
             quality = wracc_np(y_true=y_np, y_pred=y_pred)
@@ -690,7 +725,9 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
 
     # For each feature, check the "alpha" / "1 -  alpha" quantile for instances in the box as
     # potential new lower / upper bound. Choose the feature and bound with the best objective
-    # (WRAcc) value. If only empty boxes are produced or an empty box is optimal, return it.
+    # (WRAcc) value. If only empty boxes are produced or an empty box is optimal, return it
+    # (which causes main algorithm to stop; the latter will not return the empty box, however,
+    # as empty box has same WRAcc as unrestricted box, which is used in initialization).
     def _peel_one_step(self, X: np.ndarray, y: np.ndarray) -> bool:
         is_instance_in_old_box = self.predict_np(X=X)
         opt_quality = float('-inf')  # select one peel even if it's not better than previous box
@@ -700,13 +737,13 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
         # Ensure feature-cardinality constraint and exclude features only having one unique value:
         permissible_feature_idxs = self._get_permissible_feature_idxs(X=X)
         if len(permissible_feature_idxs) == 0:  # no peeling possible
-            return False  # box unchanged
+            return  # leave method (returned value is not processed, so we return nothing)
         for j in permissible_feature_idxs:
             # Check a new lower bound (if quantile between two feature values, choose middle):
             bound = np.quantile(X[is_instance_in_old_box, j], q=self._alpha, method='midpoint')
             # Only checking the new bound and combining with prior information (on whether instance
-            # in box) is faster than updating self._box_lbs and using predict_np();
-            # also, using strict equality (as in original paper) here, will be made >= later
+            # in box) is faster than updating "self._box_lbs" and using predict_np();
+            # also, we use strict equality (as in original paper) here, but will make it >= later
             y_pred = is_instance_in_old_box & (X[:, j] > bound)
             quality = wracc_np(y_true=y, y_pred=y_pred)
             if quality > opt_quality:
@@ -729,7 +766,7 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
                               opt_feature_idx]
             if len(in_box_values) > 0:
                 self._box_ubs[opt_feature_idx] = float(in_box_values.max())
-            else:  # produce an empty (and invalid) box
+            else:  # produce an empty (and invalid) box, causing main algorithm to stop
                 self._box_lbs[opt_feature_idx] = float('inf')
                 self._box_ubs[opt_feature_idx] = float('-inf')
         else:
@@ -737,7 +774,7 @@ class PRIMSubgroupDiscoverer(SubgroupDiscoverer):
                               opt_feature_idx]
             if len(in_box_values) > 0:
                 self._box_lbs[opt_feature_idx] = float(in_box_values.min())
-            else:  # produce an empty (and invalid) box
+            else:  # produce an empty (and invalid) box, causing main algorithm to stop
                 self._box_lbs[opt_feature_idx] = float('inf')
                 self._box_ubs[opt_feature_idx] = float('-inf')
 
@@ -747,8 +784,10 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
 
     Heuristic search procedure that maintains a beam (list) of candidate boxes and iteratively
     refines them, each iteration testing all possible changes of lower and upper bounds per
-    candidate box (but only one change at a time); retains a certain (beam width) number of boxes
-    with the highest quality.
+    candidate box (but only one change at a time) and retaining a certain (beam width) number of
+    boxes with the highest quality. Finally, returns the optimal box from the beam once the beam
+    does not change anymore.
+
     Inspired by the beam-search implementation in pysubgroup.BeamSearch, but faster and supports
     a cardinality constraint on the number of restricted features as well as searching alternative
     subgroup descriptions.
@@ -760,11 +799,11 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
     # - "k" is the maximum number of features that may be selected in the subgroup description.
     # - "beam_width" is the number of candidate subgroups kept per iteration (lower == faster but
     #   potentially lower quality).
-    # - "a" is the number of alternative subgroup descriptions; if None, then none (only one
+    # - "a" is the number of alternative subgroup descriptions; if None, then none (only original
     #   subgroup searched). Should only be set if "k" is set (else there may be no alternatives).
     # - "tau_abs" is the number of features selected in each existing subgroup description that
-    #   should *not* be selected in alternative subgroup description; parameter should be set if
-    #   and only if "a" is set.
+    #   should be deselected (*not* be selected) in alternative subgroup description; parameter
+    #   should be set if and only if "a" is set.
     def __init__(self, k: Optional[int] = None, beam_width: int = 10,
                  a: Optional[int] = None, tau_abs: Optional[int] = None):
         super().__init__(a=a, tau_abs=tau_abs)
@@ -802,7 +841,8 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
             for j in permissible_feature_idxs:
                 # If candidate feature "j" freshly enters the subgroup (was not selected in current
                 # subgroup before) but was selected in other subgroup, deselection count decreases
-                # by one:
+                # by one, else (was already selected in current subgroup or was not selected in
+                # other subgroup) deselection count remains the same:
                 if is_feature_selected[j]:
                     deselection_counts_j = deselection_counts
                 else:
@@ -911,11 +951,12 @@ class BestIntervalSubgroupDiscoverer(SubgroupDiscoverer):
 
     Heuristic search procedure that maintains a beam (list) of candidate boxes and iteratively
     refines them. The best-interval technique for refinement checks all lower/upper bound
-    combinations for each feature, only requiring linear instead of quadratic cost regarding
+    combinations for each feature but only requires linear instead of quadratic cost regarding
     the number of unique feature values, thanks to WRAcc being an additive metric. For comparison,
     our other beam-search implementation achieves linear cost by only changing either lower or
     upper bound, but not both simultaneously per feature and iteration. Otherwise, the search
     procedures are quite similar.
+
     A similar implementation can also be found in prelim.sd.BI (seems to be slower on average and
     has an additional termination condition in the form of a hard-coded iteration count).
 

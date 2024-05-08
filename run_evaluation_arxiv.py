@@ -1,4 +1,4 @@
-"""Run evaluation
+"""Run arXiv evaluation
 
 Script to compute summary statistics and create plots + tables for the arXiv version of the paper.
 Should be run after the experimental pipeline, as this evaluation script requires the pipeline's
@@ -32,16 +32,16 @@ def sum_unique_values(dataset_name: str, data_dir: pathlib.Path) -> int:
     return X.nunique().sum()
 
 
-# Main-routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
+# Main routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
 # and some dataset information from "data_dir". Save plots to the "plot_dir". Print some statistics
-# to the console.
+# and LaTeX-ready tables to the console.
 def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathlib.Path) -> None:
     if not results_dir.is_dir():
         raise FileNotFoundError('The results directory does not exist.')
     if not plot_dir.is_dir():
         print('The plot directory does not exist. We create it.')
         plot_dir.mkdir(parents=True)
-    if any(plot_dir.glob('*.pdf')):
+    if any(plot_dir.iterdir()):
         print('The plot directory is not empty. Files might be overwritten but not deleted.')
 
     results = data_handling.load_results(directory=results_dir)
@@ -52,14 +52,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     assert (results['param.k'].isna() |
             (results['selected_feature_idxs'].apply(len) <= results['param.k'])).all()
 
-    # Define column list for evaluation:
-    evaluation_metrics = ['optimization_time', 'fitting_time', 'train_nwracc', 'test_nwracc']
-    alt_evaluation_metrics = ['alt.hamming', 'alt.jaccard']
-    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'PRIM', 'MORB', 'Random']
-
-    # Compute further evaluation metrics:
+    # Compute further evaluation metrics and define column lists for evaluation:
     results['time_fit_opt_diff'] = results['fitting_time'] - results['optimization_time']
     results['nwracc_train_test_diff'] = results['train_nwracc'] - results['test_nwracc']
+    evaluation_metrics = ['fitting_time', 'train_nwracc', 'test_nwracc', 'nwracc_train_test_diff']
+    alt_evaluation_metrics = ['alt.hamming', 'alt.jaccard']
+    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'PRIM', 'MORS', 'Random']
 
     # Define constants for filtering results:
     int_na_columns = ['param.k', 'param.timeout', 'param.tau_abs', 'alt.number']
@@ -70,6 +68,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
     print('\n-------- Introduction --------')
+
+    print('\n-- Motivation --')
 
     X, y = sklearn.datasets.load_iris(as_frame=True, return_X_y=True)
     X = X[['petal length (cm)', 'petal width (cm)']]
@@ -107,12 +107,13 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\n## Table 1: Dataset overview ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'Dataset', 'n_instances': '$m$', 'n_features': '$n$'})
-    print_results['max-k'] = print_results['Dataset'].apply(
+    print_results['timeouts-for-max-k'] = print_results['Dataset'].apply(
         lambda dataset_name: (results.loc[
             (results['dataset_name'] == dataset_name) & (results['sd_name'] == 'SMT') &
             (results['param.timeout'] == max_timeout) & (results['param.k'] == max_k) &
-            results['alt.number'].isna(), 'optimization_status'] != 'sat').any())
-    print_results['any-k'] = print_results['Dataset'].apply(
+            results['alt.number'].isna() & results['param.tau_abs'].isna(),
+            'optimization_status'] != 'sat').any())
+    print_results['timeouts-for-any-k'] = print_results['Dataset'].apply(
         lambda dataset_name: (results.loc[
             (results['dataset_name'] == dataset_name) & (results['sd_name'] == 'SMT') &
             (results['param.timeout'] == max_timeout) &
@@ -145,7 +146,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results.groupby('sd_name')[evaluation_metrics].mean().round(3))
 
     print('\nHow are the mean values of evaluation metrics distributed (datasets without timeout',
-          'in exact optimization)?')
+          'in SMT optimization)?')
     print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
         'sd_name')[evaluation_metrics].mean().round(3))
 
@@ -161,7 +162,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(print_results[evaluation_metrics].describe().round(3))
 
     print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
-          '(datasets without timeout in exact optimization)?')
+          '(datasets without timeout in SMT optimization)?')
     print(print_results.loc[print_results['dataset_name'].isin(no_timeout_datasets),
                             evaluation_metrics].describe().round(3))
 
@@ -186,21 +187,18 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                          bbox_to_anchor=(0, -0.3), columnspacing=1, framealpha=0, ncols=2)
         leg.get_title().set_position((-127, -25))
         plt.tight_layout()
-        plt.savefig(plot_dir / f'csd-unconstrained-methods-nwracc-{selection_name}.pdf')
-
-    print('\nHow is the difference "train - test" in nWRAcc distributed?')
-    print(eval_results.groupby('sd_name')['nwracc_train_test_diff'].describe().transpose().round(3))
+        plt.savefig(plot_dir / f'csd-unconstrained-nwracc-{selection_name}.pdf')
 
     print('\n-- Runtime --')
 
     print('\n## Tables 2a, 2b: Aggregated runtime by subgroup-discovery-method ##\n')
     for (dataset_list, selection_name) in [(all_datasets, 'all-datasets'),
                                            (no_timeout_datasets, 'no-timeout-datasets')]:
-        print('Dataset selection:', selection_name)
+        print('Dataset selection:', selection_name, '\n')
         print_results = eval_results[eval_results['dataset_name'].isin(dataset_list)]
         print_results = print_results.groupby('sd_name')['fitting_time'].agg(
             ['mean', 'std', 'median'])
-        print_results.index.rename('Aggregate', inplace=True)
+        print_results.index.name = 'Aggregate'
         print_results = print_results.reindex(sd_name_plot_order)
         print_results.rename(columns={'mean': 'Mean', 'std': 'Standard dev.', 'median': 'Median'},
                              inplace=True)
@@ -210,7 +208,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results.groupby('sd_name')['time_fit_opt_diff'].describe().transpose().round(2))
 
     print('\n## Table 3: Correlation of runtime by subgroup-discovery method',
-          '(datasets without timeout in exact optimization)##\n')
+          '(datasets without timeout in SMT optimization)##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'dataset_name', 'n_instances': '$m$', 'n_features': '$n$'})
     print_results['$m \\cdot n$'] = print_results['$m$'] * print_results['$n$']
@@ -222,10 +220,10 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results.groupby('sd_name').corr(method='spearman')
     print_results = print_results['fitting_time'].reset_index()
     print_results = print_results.pivot(index='sd_name', columns='level_1', values='fitting_time')
-    print_results.index.name = None  # left-over of pivot()
+    print_results.index.name = None  # left-over of pivot(), would be an unnecessary row in table
     print_results = print_results.reindex(sd_name_plot_order)
     print_results.columns.name = 'Method'
-    print_results = print_results.drop(columns='fitting_time')
+    print_results = print_results.drop(columns='fitting_time')  # self-correlation is boring
     print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
 
     print('\n------ Experimental scenario 2: Solver timeouts (no alternatives) ------')
@@ -235,8 +233,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
     eval_results = results.loc[(results['sd_name'] == 'SMT') &
                                results['alt.number'].isin([pd.NA, 0]) &
-                               results['param.tau_abs'].isin([pd.NA, min_tau_abs]),
-                               ['param.k', 'param.timeout', 'optimization_status']].copy()
+                               results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
     print_results = eval_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
@@ -281,8 +278,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results[eval_results['dataset_name'].isin(all_timeout_datasets)].groupby(
         'param.timeout')[evaluation_metrics].mean().round(3))
 
-    print('\nWhat is the mean value of evaluation metrics for beam search on the timeout-only',
-          'datasets (with maximum cardinality)?')
+    print('\nWhat is the mean value of evaluation metrics for beam search on each timeout-only',
+          'dataset (with maximum cardinality)?')
     print_results = results[(results['sd_name'] == 'Beam') & (results['param.k'] == max_k) &
                             results['alt.number'].isin([pd.NA, 0]) &
                             results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
@@ -317,15 +314,6 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-timeouts-nwracc.pdf')
 
-    print('\nHow is the difference "train - test" in nWRAcc distributed over timeouts (with',
-          'maximum cardinality and all datasets)?')
-    print(eval_results.groupby('param.timeout')['nwracc_train_test_diff'].describe().round(3))
-
-    print('\nHow is the difference "train - test" in nWRAcc distributed over timeouts (with',
-          'maximum cardinality and timeout-only datasets)?')
-    print(eval_results[eval_results['dataset_name'].isin(all_timeout_datasets)].groupby(
-        'param.timeout')['nwracc_train_test_diff'].describe().round(3))
-
     print('\n------ Experimental scenario 3: Feature-cardinality constraints',
           '(max timeout, no alternatives) ------')
 
@@ -349,7 +337,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             index='param.k', columns='sd_name').round(3))
 
     print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
-          '(datasets without timeout in exact optimization)?')
+          '(datasets without timeout in SMT optimization)?')
     for metric in evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
@@ -357,7 +345,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 4a, 4b: Subgroup quality over cardinality, by subgroup-discovery method
+    # Figures 4a, 4b: Subgroup quality over cardinality "k", by subgroup-discovery method
     plot_results = eval_results[['sd_name', 'param.k', 'train_nwracc', 'test_nwracc']].copy()
     plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
     for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
@@ -374,12 +362,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                    bbox_to_anchor=(0, -0.25), columnspacing=1, framealpha=0, ncols=2)
         plt.figtext(x=0.14, y=0.19, s='Method', rotation='vertical')
         plt.tight_layout()
-        plt.savefig(plot_dir / f'csd-cardinality-methods-{metric.replace("_", "-")}.pdf')
-
-    print('\nHow is the mean difference "train - test" in nWRAcc distributed over cardinality "k"',
-          '(all datasets)?')
-    print(eval_results.groupby(['sd_name', 'param.k'])['nwracc_train_test_diff'].mean(
-        ).reset_index().pivot(index='param.k', columns='sd_name').round(3))
+        plt.savefig(plot_dir / f'csd-cardinality-{metric.replace("_", "-")}.pdf')
 
     print('\n-- Runtime --')
 
@@ -401,13 +384,13 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\nHow are the mean values of evaluation metrics distributed over the number of',
           'alternative and the dissimilarity threshold (all datasets)?')
-    for metric in evaluation_metrics + ['nwracc_train_test_diff'] + alt_evaluation_metrics:
+    for metric in evaluation_metrics + alt_evaluation_metrics:
         print(eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean(
             ).reset_index().pivot(index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
 
     print('\nHow are the mean values of evaluation metrics distributed over the number of',
           'alternative and the dissimilarity threshold (datasets without timeout)?')
-    for metric in evaluation_metrics + ['nwracc_train_test_diff'] + alt_evaluation_metrics:
+    for metric in evaluation_metrics + alt_evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
                 index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
@@ -420,7 +403,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
     plot_results['param.tau_abs'] = plot_results['param.tau_abs'].astype(int)
     plot_results.rename(columns={'sd_name': '_sd_name', 'param.tau_abs': '_param.tau_abs'},
-                        inplace=True)
+                        inplace=True)  # underscore hides these labels in legend
     for metric, metric_name, yticks in [
             ('alt.hamming', 'Norm. Hamming sim.', np.arange(start=0.8, stop=1.05, step=0.1)),
             ('alt.jaccard', 'Jaccard sim.', np.arange(start=0.2, stop=1.05, step=0.1))]:
@@ -437,7 +420,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.figtext(x=0.54, y=0.18, s='Method', rotation='vertical')
         plt.figtext(x=0.16, y=0.21, s='$\\tau_{\\mathrm{abs}}$', rotation='vertical')
         plt.tight_layout()
-        plt.savefig(plot_dir / f'csd-alternatives-similarity-{metric.replace("alt.", "")}.pdf')
+        plt.savefig(plot_dir / f'csd-alternatives-{metric.replace("alt.", "")}.pdf')
 
     print('\n-- Subgroup quality --')
 
@@ -494,8 +477,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
 # Parse some command-line arguments and run the main routine.
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Creates paper\'s plots and prints statistics.',
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description='Creates the paper\'s plots + tables and prints statistics.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-d', '--data', type=pathlib.Path, default='data/datasets/', dest='data_dir',
                         help='Directory with prediction datasets in (X, y) form.')
     parser.add_argument('-r', '--results', type=pathlib.Path, default='data/results/',

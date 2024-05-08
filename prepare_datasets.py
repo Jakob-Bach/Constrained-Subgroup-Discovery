@@ -16,13 +16,13 @@ import tqdm
 import data_handling
 
 
-# Manually defined by looking for similar dataset names and dataset properties on the website
-# https://epistasislab.github.io/pmlb/index.html
+# List of duplicates of other datasets in our selection, manually defined by looking for similar
+# dataset names and properties on the website https://epistasislab.github.io/pmlb/index.html
 DUPLICATE_DATASETS = ['agaricus_lepiota', 'breast_cancer_wisconsin', 'colic', 'german',
                       'Hill_Valley_without_noise', 'kr_vs_kp']
 
 
-# Main-routine: download, pre-process, and save (to "data_dir") datasets from PMLB.
+# Main routine: Download, pre-process, and save (to "data_dir") datasets from PMLB.
 def prepare_datasets(data_dir: pathlib.Path) -> None:
     if not data_dir.is_dir():
         print('Dataset directory does not exist. We create it.')
@@ -38,7 +38,7 @@ def prepare_datasets(data_dir: pathlib.Path) -> None:
         (dataset_overview['n_instances'] >= 100) &
         (dataset_overview['n_features'] >= 20) &
         (dataset_overview['n_features'] <= 200)
-    ]  # filtering steps described in paper
+    ]  # filtering steps described in paper (last condition filters one high-dimensional dataset)
     assert pd.Series(DUPLICATE_DATASETS).isin(dataset_overview['dataset']).all()  # check for typos
     dataset_overview = dataset_overview[~dataset_overview['dataset'].isin(DUPLICATE_DATASETS)]
     assert len(dataset_overview) == 27  # if this changes, we would need to adapt paper as well
