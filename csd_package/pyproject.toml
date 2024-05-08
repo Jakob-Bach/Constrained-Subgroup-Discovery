@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "csd"
+version = "0.0.1"
+authors = [
+    {name="Jakob Bach"},
+]
+description = "(Constrained) subgroup discovery"
+keywords = ["subgroup discovery", "constraints", "feature selection", "alternative subgroup descriptions"]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.24.4",
+    "ortools>=9.7.2996",
+    "pandas>=2.0.3",
+    "z3-solver>=4.12.2.0",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/Jakob-Bach/Constrained-Subgroup-Discovery"
+Issues = "https://github.com/Jakob-Bach/Constrained-Subgroup-Discovery/issues"

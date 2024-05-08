@@ -19,7 +19,7 @@ import pandas as pd
 import tqdm
 
 import data_handling
-import sd
+import csd
 
 
 # Different components of the experimental design.
@@ -33,7 +33,7 @@ ALT_NUMBER = 5  # number of alternatives if alteratives should be searched
 # Define a list of subgroup-discovery methods for "define_experimental_tasks()", each element
 # comprising the method itself and a list of (dictionaries containing) hyperparameter combinations
 # used to initialize the method.
-def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[str, Any]]]]:
+def define_sd_methods() -> Sequence[Dict[str, Union[csd.SubgroupDiscoverer, Dict[str, Any]]]]:
     card_args = [{'k': k} for k in CARDINALITIES]
     smt_args = []
     for timeout, k in itertools.product(SOLVER_TIMEOUTS, CARDINALITIES):
@@ -50,12 +50,12 @@ def define_sd_methods() -> Sequence[Dict[str, Union[sd.SubgroupDiscoverer, Dict[
         else:
             beam_args.append({'k': k})
     return [
-        {'sd_name': 'SMT', 'sd_type': sd.SMTSubgroupDiscoverer, 'sd_args_list': smt_args},
-        {'sd_name': 'MORS', 'sd_type': sd.MORSSubgroupDiscoverer, 'sd_args_list': card_args},
-        {'sd_name': 'Random', 'sd_type': sd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
-        {'sd_name': 'PRIM', 'sd_type': sd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
-        {'sd_name': 'BI', 'sd_type': sd.BestIntervalSubgroupDiscoverer, 'sd_args_list': card_args},
-        {'sd_name': 'Beam', 'sd_type': sd.BeamSearchSubgroupDiscoverer, 'sd_args_list': beam_args}
+        {'sd_name': 'SMT', 'sd_type': csd.SMTSubgroupDiscoverer, 'sd_args_list': smt_args},
+        {'sd_name': 'MORS', 'sd_type': csd.MORSSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'Random', 'sd_type': csd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'PRIM', 'sd_type': csd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'BI', 'sd_type': csd.BestIntervalSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'Beam', 'sd_type': csd.BeamSearchSubgroupDiscoverer, 'sd_args_list': beam_args}
     ]
 
 
@@ -89,7 +89,7 @@ def define_experimental_tasks(data_dir: pathlib.Path,
 # subgroups, runtime, and subgroup quality. Additionally, save this data to "results_dir".
 def evaluate_experimental_task(
         dataset_name: str, data_dir: pathlib.Path, results_dir: pathlib.Path, split_idx: int,
-        sd_name: str, sd_type: Type[sd.SubgroupDiscoverer], sd_args_list: Sequence[Dict[str, Any]]) -> pd.DataFrame:
+        sd_name: str, sd_type: Type[csd.SubgroupDiscoverer], sd_args_list: Sequence[Dict[str, Any]]) -> pd.DataFrame:
     X, y = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
     train_idx, test_idx = list(data_handling.split_for_pipeline(X=X, y=y, n_splits=N_FOLDS))[split_idx]
     results = []

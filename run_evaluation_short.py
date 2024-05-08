@@ -18,7 +18,7 @@ import seaborn as sns
 import sklearn.datasets
 
 import data_handling
-import sd
+import csd
 
 
 plt.rcParams['font.family'] = 'Linux Biolinum'  # fits to serif font "Libertine" from ACM template
@@ -63,7 +63,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     y = (y == 1).astype(int).rename('Target')
     plot_data = pd.concat((X, y.astype(str)), axis='columns')
 
-    model = sd.MORSSubgroupDiscoverer(k=2)
+    model = csd.MORSSubgroupDiscoverer(k=2)
     model.fit(X=X, y=y)
 
     print('What are the bounds for the exemplary subgroup?')
