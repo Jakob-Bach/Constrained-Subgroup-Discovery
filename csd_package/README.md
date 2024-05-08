@@ -13,8 +13,14 @@ This document provides:
 
 ## Setup
 
-If you have the source code for the package (i.e., the directory in which this `README` resides)
-as a local directory your computer (e.g., after cloning the project), you can perform a local install:
+You can directly install this package from GitHub:
+
+```bash
+python -m pip install git+https://github.com/Jakob-Bach/Constrained-Subgroup-Discovery.git#subdirectory=csd_package
+```
+
+If you already have the source code for the package (i.e., the directory in which this `README` resides)
+as a local directory on your computer (e.g., after cloning the project), you can also perform a local install:
 
 ```bash
 python -m pip install csd_package/
