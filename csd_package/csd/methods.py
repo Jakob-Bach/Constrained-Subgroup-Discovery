@@ -316,13 +316,19 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
             # (e.g., instance from within box might fall slightly outside, even if all numerical
             # tolerances were set to 0 in optimization), so we use actual feature values of
             # instances in box instead; nice side-effect: box is tight around instances instead of
-            # extending into margin around them
+            # extending into the margin around them.
+            # If the box is empty, use +inf as LB and -inf as UB for selected features.
+            # For features where lower/upper bounds do not exclude any instance, use -/+ inf.
             is_instance_in_box = [bool(var.solution_value()) for var in is_instance_in_box_vars]
             is_lb_unused = [not bool(var.solution_value()) for var in is_feature_selected_lb_vars]
             is_ub_unused = [not bool(var.solution_value()) for var in is_feature_selected_ub_vars]
-            self._box_lbs = X.iloc[is_instance_in_box].min()
+            if any(is_instance_in_box):
+                self._box_lbs = X.iloc[is_instance_in_box].min()
+                self._box_ubs = X.iloc[is_instance_in_box].max()
+            else:  # min()/max() would yield NaN; use invalid bounds instead
+                self._box_lbs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
+                self._box_ubs = pd.Series([float('-inf')] * X.shape[1], index=X.columns)
             self._box_lbs[is_lb_unused] = float('-inf')
-            self._box_ubs = X.iloc[is_instance_in_box].max()
             self._box_ubs[is_ub_unused] = float('inf')
             objective_value = model.Objective().Value()
         else:
@@ -443,14 +449,19 @@ class SMTSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
                                     objective.value().denominator_as_long())
         # To avoid potential numeric issues when extracting values of real variables, use actual
         # feature values of instances in box as bounds (also makes box tight around instances).
-        # If lower or upper bounds do not exclude any instances or if no valid model was found
-        # (variables are None -> bool values are False), use -/+ inf as bounds.
+        # If the box is empty, use +inf as LB and -inf as UB for selected features.
+        # For features where lower/upper bounds do not exclude any instance, or if no valid model
+        # was found (variables are None -> bool values are False), use -/+ inf as bounds.
         is_instance_in_box = [bool(optimizer.model()[var]) for var in is_instance_in_box_vars]
         is_lb_unused = [not bool(optimizer.model()[var]) for var in is_feature_selected_lb_vars]
         is_ub_unused = [not bool(optimizer.model()[var]) for var in is_feature_selected_ub_vars]
-        self._box_lbs = X.iloc[is_instance_in_box].min()
+        if any(is_instance_in_box):
+            self._box_lbs = X.iloc[is_instance_in_box].min()
+            self._box_ubs = X.iloc[is_instance_in_box].max()
+        else:  # min()/max() would yield NaN; use invalid bounds instead
+            self._box_lbs = pd.Series([float('inf')] * X.shape[1], index=X.columns)
+            self._box_ubs = pd.Series([float('-inf')] * X.shape[1], index=X.columns)
         self._box_lbs.iloc[is_lb_unused] = float('-inf')
-        self._box_ubs = X.iloc[is_instance_in_box].max()
         self._box_ubs.iloc[is_ub_unused] = float('inf')
         return {'objective_value': objective_value,
                 'optimization_status': str(optimization_status),
