@@ -802,9 +802,9 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
                                    for _ in range(self._beam_width)])  # beam width * num instances
         # All boxes should be considered for updates:
         cand_has_changed = np.ones(shape=self._beam_width, dtype=bool)
-        # Boxes containing all instances have WRAcc of 0:
-        cand_quality = np.zeros(shape=self._beam_width)
-        cand_min_quality = 0
+        # Compute objective value for initial boxes:
+        cand_quality = [objective_func(y_np, is_in_box) for is_in_box in beam_is_in_box]
+        cand_min_quality = cand_quality.min()
         while np.count_nonzero(cand_has_changed) > 0:  # at least one box changed last iteration
             # Copy boxes from the beam since the candidates for next beam will be updated, but we
             # still want to iterate over the unchanged beam of the previous iteration:
@@ -928,11 +928,11 @@ class BestIntervalSubgroupDiscoverer(SubgroupDiscoverer):
         # Initial boxes contain all instances:
         beam_is_in_box = np.array([np.ones(shape=X_np.shape[0], dtype=bool)
                                    for _ in range(self._beam_width)])  # beam width * num instances
-        # Boxes containing all instances have WRAcc of 0:
-        beam_quality = np.zeros(shape=self._beam_width)
         # All boxes should be considered for updates:
         cand_has_changed = np.ones(shape=self._beam_width, dtype=bool)
-        cand_min_quality = 0
+        # Compute objective value for initial boxes:
+        beam_quality = [wracc_np(y_true=y_np, y_pred=is_in_box) for is_in_box in beam_is_in_box]
+        cand_min_quality = beam_quality.min()
         while np.count_nonzero(cand_has_changed) > 0:  # at least one box changed last iteration
             # Copy boxes from the beam since the candidates for next beam will be updated, but we
             # still want to iterate over the unchanged beam of the previous iteration:
