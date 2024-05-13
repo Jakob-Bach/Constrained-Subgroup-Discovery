@@ -814,7 +814,7 @@ class BeamSearchSubgroupDiscoverer(AlternativeSubgroupDiscoverer):
         # All boxes should be considered for updates:
         cand_has_changed = np.ones(shape=self._beam_width, dtype=bool)
         # Compute objective value for initial boxes:
-        cand_quality = [objective_func(y_np, is_in_box) for is_in_box in beam_is_in_box]
+        cand_quality = np.array([objective_func(y_np, is_in_box) for is_in_box in beam_is_in_box])
         cand_min_quality = cand_quality.min()
         while np.count_nonzero(cand_has_changed) > 0:  # at least one box changed last iteration
             # Copy boxes from the beam since the candidates for next beam will be updated, but we
@@ -942,7 +942,8 @@ class BestIntervalSubgroupDiscoverer(SubgroupDiscoverer):
         # All boxes should be considered for updates:
         cand_has_changed = np.ones(shape=self._beam_width, dtype=bool)
         # Compute objective value for initial boxes:
-        beam_quality = [wracc_np(y_true=y_np, y_pred=is_in_box) for is_in_box in beam_is_in_box]
+        beam_quality = np.array([wracc_np(y_true=y_np, y_pred=is_in_box)
+                                 for is_in_box in beam_is_in_box])
         cand_min_quality = beam_quality.min()
         while np.count_nonzero(cand_has_changed) > 0:  # at least one box changed last iteration
             # Copy boxes from the beam since the candidates for next beam will be updated, but we
