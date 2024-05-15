@@ -80,12 +80,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     model = csd.MORSSubgroupDiscoverer(k=2)
     model.fit(X=X, y=y)
 
-    print('What are the bounds for the exemplary subgroup?')
+    print('\nWhat are the lower bounds of the exemplary subgroup?')
     print(model.get_box_lbs())
+
+    print('\nWhat are the upper bounds of the exemplary subgroup?')
     print(model.get_box_ubs())
-    j_1, j_2 = model.get_selected_feature_idxs()
 
     # Figure 1: Exemplary subgroup description
+    j_1, j_2 = model.get_selected_feature_idxs()
     plt.figure(figsize=(8, 3))
     plt.rcParams['font.size'] = 15
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
@@ -199,7 +201,6 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print_results = print_results.groupby('sd_name')['fitting_time'].agg(
             ['mean', 'std', 'median'])
         print_results.index.name = 'Aggregate'
-        print_results = print_results.reindex(sd_name_plot_order)
         print_results.rename(columns={'mean': 'Mean', 'std': 'Standard dev.', 'median': 'Median'},
                              inplace=True)
         print(print_results.transpose().style.format('{:.2f}~s'.format).to_latex(hrules=True))
@@ -208,7 +209,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results.groupby('sd_name')['time_fit_opt_diff'].describe().transpose().round(2))
 
     print('\n## Table 3: Correlation of runtime by subgroup-discovery method',
-          '(datasets without timeout in SMT optimization)##\n')
+          '(datasets without timeout in SMT optimization) ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'dataset_name', 'n_instances': '$m$', 'n_features': '$n$'})
     print_results['$m \\cdot n$'] = print_results['$m$'] * print_results['$n$']
@@ -221,7 +222,6 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results['fitting_time'].reset_index()
     print_results = print_results.pivot(index='sd_name', columns='level_1', values='fitting_time')
     print_results.index.name = None  # left-over of pivot(), would be an unnecessary row in table
-    print_results = print_results.reindex(sd_name_plot_order)
     print_results.columns.name = 'Method'
     print_results = print_results.drop(columns='fitting_time')  # self-correlation is boring
     print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
@@ -269,12 +269,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         lambda x: (x != 'sat').all())  # returns Series with bool values and DS names as index
     all_timeout_datasets = all_timeout_datasets[all_timeout_datasets].index.to_list()
 
-    print('\nHow is the mean value of evaluation metrics distributed over timeouts (with maximum',
-          'cardinality and all datasets)?')
+    print('\nHow is the mean value of evaluation metrics for SMT distributed over timeouts (with',
+          'maximum cardinality and all datasets)?')
     print(eval_results.groupby('param.timeout')[evaluation_metrics].mean().round(3))
 
-    print('\nHow is the mean value of evaluation metrics distributed over timeouts (with maximum',
-          'cardinality and timeout-only datasets)?')
+    print('\nHow is the mean value of evaluation metrics for SMT distributed over timeouts (with',
+          'maximum cardinality and timeout-only datasets)?')
     print(eval_results[eval_results['dataset_name'].isin(all_timeout_datasets)].groupby(
         'param.timeout')[evaluation_metrics].mean().round(3))
 

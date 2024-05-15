@@ -140,6 +140,7 @@ python -m run_experiments
 ```
 
 Depending on your hardware, this might take some time.
+For example, we had a runtime of roughly 34 hours on a server with an AMD EPYC 7551 CPU (32 physical cores, base clock of 2.0 GHz).
 
 To print statistics and create the plots for the paper, run
 

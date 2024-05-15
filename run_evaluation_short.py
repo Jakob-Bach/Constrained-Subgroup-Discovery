@@ -66,12 +66,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     model = csd.MORSSubgroupDiscoverer(k=2)
     model.fit(X=X, y=y)
 
-    print('What are the bounds for the exemplary subgroup?')
+    print('\nWhat are the lower bounds of the exemplary subgroup?')
     print(model.get_box_lbs())
+
+    print('\nWhat are the upper bounds of the exemplary subgroup?')
     print(model.get_box_ubs())
-    j_1, j_2 = model.get_selected_feature_idxs()
 
     # Figure 1: Exemplary subgroup description
+    j_1, j_2 = model.get_selected_feature_idxs()
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 10
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
@@ -104,14 +106,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
 
-    print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
-          '(all datasets)?')
+    print('\nHow are the mean values of evaluation metrics distributed over subgroup-discovery',
+          'methods and cardinality "k" (all datasets)?')
     for metric in evaluation_metrics:
         print(eval_results.groupby(['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
             index='param.k', columns='sd_name').round(3))
 
-    print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
-          '(datasets without timeouts in SMT optimization)?')
+    print('\nHow are the mean values of evaluation metrics distributed over subgroup-discovery',
+          'methods and cardinality "k" (datasets without timeouts in SMT optimization)?')
     for metric in evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
@@ -148,7 +150,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results.columns.name = '$k$'
     print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
 
-    print('\n---- Timeout analysis for "Training-set subgroup quality" ----')
+    print('\n-- Timeout analysis for "Training-set subgroup quality" --')
 
     print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
     eval_results = results.loc[(results['sd_name'] == 'SMT') &
@@ -162,12 +164,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                            results['alt.number'].isin([pd.NA, 0]) &
                            results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
 
-    print('\nHow many datasets do not have any timeout (with maximum cardinality)?',
+    print('\nHow many datasets do not have any SMT timeout (with maximum cardinality)?',
           eval_results[(eval_results['param.timeout'] == max_timeout)].groupby('dataset_name')[
               'optimization_status'].agg(lambda x: (x == 'sat').all()).sum())
 
-    print('\nHow is the mean value of evaluation metrics distributed over timeouts (with maximum',
-          'cardinality)?')
+    print('\nHow is the mean value of evaluation metrics for SMT distributed over timeouts (with',
+          'maximum cardinality)?')
     print(eval_results.groupby('param.timeout')[evaluation_metrics].mean().round(3))
 
     # Figure 2c: Subgroup quality over timeouts
