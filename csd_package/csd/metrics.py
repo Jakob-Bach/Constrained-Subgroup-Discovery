@@ -1,6 +1,6 @@
 """Subgroup-discovery metrics
 
-Functions for subgroup-discovery evaluation metrics.
+Functions for subgroup-discovery evaluation metrics, quantifying subgroup quality and similarity.
 """
 
 
@@ -17,7 +17,9 @@ def wracc(y_true: Sequence[Union[bool, int]], y_pred: Sequence[Union[bool, int]]
     The range of WRAcc is at most [-0.25, 0.25] but actually depends on the class imbalance
     (becomes smaller if the classes are more imbalanced).
 
-    Literature: Lavrac et al. (1999): "Rule Evaluation Measures: A Unifying View".
+    Literature
+    ----------
+    Lavrac et al. (1999): "Rule Evaluation Measures: A Unifying View"
 
     Parameters
     ----------
@@ -72,7 +74,9 @@ def nwracc(y_true: Sequence[Union[bool, int]], y_pred: Sequence[Union[bool, int]
     class probabilities) and therefore always has the range [-1, 1], no matter how imbalanced the
     two classes are.
 
-    Literature: Mathonat et al. (2021): "Anytime Subgroup Discovery in High Dimensional Numerical Data"
+    Literature
+    ----------
+    Mathonat et al. (2021): "Anytime Subgroup Discovery in High Dimensional Numerical Data"
 
     Parameters
     ----------
@@ -128,9 +132,11 @@ def jaccard(set_1_indicators: Sequence[Union[bool, int]],
 
     Computes the Jaccard similarity between two binary (bool or int) sequences (may also be
     :class:`pd.Series` or :class:`np.array`) indicating set membership. It is a symmetric measure
-    (i.e., order of arguments does not matter) with the range [0 1].
+    (i.e., order of arguments does not matter) with the range [0, 1].
 
-    Literature: https://en.wikipedia.org/wiki/Jaccard_index
+    Literature
+    ----------
+    https://en.wikipedia.org/wiki/Jaccard_index
 
     Parameters
     ----------
@@ -177,11 +183,13 @@ def hamming(sequence_1: Sequence[Any], sequence_2: Sequence[Any]) -> float:
 
     Computes the normalized Hamming similarity, i.e., 1 - Hamming distance normalized to [0, 1],
     between two sequences (may also be :class:`pd.Series` or class:`np.array`). It is a symmetric
-    measure (i.e., order of arguments does not matter) with the range [0 1]. Since it only checks
+    measure (i.e., order of arguments does not matter) with the range [0, 1]. Since it only checks
     whether elements are identical or not, the elements may be of arbitrary type. For two binary
     vectors, it equals prediction accuracy.
 
-    Literature: https://en.wikipedia.org/wiki/Hamming_distance
+    Literature
+    ----------
+    https://en.wikipedia.org/wiki/Hamming_distance
 
     Parameters
     ----------
