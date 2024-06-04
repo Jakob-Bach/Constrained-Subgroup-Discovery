@@ -4,9 +4,10 @@ This repository contains the code of two papers:
 
 > Bach, Jakob. "Using Constraints to Discover Sparse and Alternative Subgroup Descriptions"
 
-(To be published on arXiv.
-Once it's published, we'll add a link to it here.
-We'll link the experimental data, too.)
+is published on [arXiv](https://arxiv.org/).
+You can find the paper [here](https://doi.org/10.48550/arXiv.2406.01411).
+You can find the corresponding complete experimental data (inputs as well as results) on [RADAR4KIT](https://doi.org/10.35097/caKKJCtoKqgxyvqG).
+Use the tags `run-2024-05-13` and `evaluation-2024-05-15` for reproducing the experiments.
 
 > Bach, Jakob, and Klemens Böhm. "..."
 
