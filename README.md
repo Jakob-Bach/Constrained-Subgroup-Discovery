@@ -1,6 +1,6 @@
 # Constrained Subgroup Discovery
 
-This repository contains the code of two papers:
+This repository contains the code of two papers and a dissertation:
 
 > Bach, Jakob. "Using Constraints to Discover Sparse and Alternative Subgroup Descriptions"
 
@@ -15,6 +15,11 @@ Use the tags `run-2024-05-13` and `evaluation-2024-05-15` for reproducing the ex
 Once it's published, we'll add a link to it here.
 We'll link the experimental data, too.)
 
+> Bach, Jakob. "Leveraging Constraints for User-Centric Feature Selection"
+
+is a dissertation in progress.
+Once it is published, we will link it (and its experimental data) here as well.
+
 This document provides:
 
 - An outline of the [repo structure](#repo-structure).
@@ -22,7 +27,7 @@ This document provides:
 
 ## Repo Structure
 
-Currently, the repository contains six Python files and four non-code files.
+Currently, the repository contains seven Python files and four non-code files.
 The non-code files are:
 
 - `.gitignore`: For Python development.
@@ -36,7 +41,7 @@ The code files comprise our experimental pipeline (see below for details):
 - `prepare_demo_datasets.py`: Alternative script for the first stage of the experiments,
   preparing fewer and smaller datasets (used in some preliminary benchmarking experiments).
 - `run_experiments.py`: Second stage of the experiments (run subgroup discovery).
-- `run_evaluation_(arxiv|short).py`: Third stage of the experiments (compute statistics and create plots for the paper).
+- `run_evaluation_(arxiv|dissertation|short).py`: Third stage of the experiments (compute statistics and create plots).
 - `data_handling.py`: Functions for working with prediction datasets and experimental data.
 
 Additionally, we have organized the subgroup-discovery methods for our experiments as the standalone Python package `csd`,
@@ -143,20 +148,14 @@ python -m run_experiments
 Depending on your hardware, this might take some time.
 For example, we had a runtime of roughly 34 hours on a server with an AMD EPYC 7551 CPU (32 physical cores, base clock of 2.0 GHz).
 
-To print statistics and create the plots for the paper, run
+To print statistics and create the plots, run
 
 ```bash
-python -m run_evaluation_arxiv
+python -m run_evaluation_<<version>>
 ```
 
-or
-
-```bash
-python -m run_evaluation_short
-```
-
-(The short version is more focused and therefore contains fewer evaluations.
-Also, the plots are formatted a bit differently.)
+(The evaluation length differs between versions, as does the plot formatting.
+The arXiv version has the longest and most detailed evaluation.)
 
 All scripts have a few command-line options, which you can see by running the scripts like
 
