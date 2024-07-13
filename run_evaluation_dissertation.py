@@ -24,6 +24,7 @@ import csd
 
 
 plt.rcParams['font.family'] = 'Arial'
+DEFAULT_COL_PALETTE = 'YlGnBu'
 
 
 # Sum the number of unique values over all features in a dataset.
@@ -91,13 +92,13 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(8, 3))
     plt.rcParams['font.size'] = 15
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
-                    data=plot_data, palette='Set2')
+                    style='Target', data=plot_data, palette=DEFAULT_COL_PALETTE)
     plt.vlines(x=(model.get_box_lbs()[j_1], model.get_box_ubs()[j_1]),
                ymin=model.get_box_lbs()[j_2], ymax=model.get_box_ubs()[j_2],
-               colors=sns.color_palette('Set2', 2)[1])
+               colors=sns.color_palette(DEFAULT_COL_PALETTE, 2)[1])
     plt.hlines(y=(model.get_box_lbs()[j_2], model.get_box_ubs()[j_2]),
                xmin=model.get_box_lbs()[j_1], xmax=model.get_box_ubs()[j_1],
-               colors=sns.color_palette('Set2', 2)[1])
+               colors=sns.color_palette(DEFAULT_COL_PALETTE, 2)[1])
     plt.gca().set_aspect('equal')
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-exemplary-subgroup.pdf')
@@ -180,7 +181,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.figure(figsize=(5, 5))
         plt.rcParams['font.size'] = 18
         sns.boxplot(data=plot_results[plot_results['dataset_name'].isin(dataset_list)],
-                    x='sd_name', y='nWRAcc', hue='Split', palette='Set2', order=sd_name_plot_order)
+                    x='sd_name', y='nWRAcc', hue='Split', palette=DEFAULT_COL_PALETTE,
+                    order=sd_name_plot_order)
         plt.xlabel('Subgroup-discovery method')
         plt.xticks(rotation=45, horizontalalignment='right')
         plt.ylim(-0.35, 1.05)
@@ -244,7 +246,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 15
     sns.lineplot(x='param.timeout', y='finished', hue='param.k', style='param.k',
-                 data=plot_results, palette=sns.color_palette('RdPu', 7)[1:])
+                 data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 7)[1:])
     plt.xlabel('Solver timeout in seconds')
     plt.xscale('log')
     plt.xticks(ticks=[2**x for x in range(12)],
@@ -299,7 +301,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 15
     sns.lineplot(x='param.timeout', y='nWRAcc', hue='Split', style='Split', data=plot_results,
-                 palette='Set2', seed=25)
+                 palette=DEFAULT_COL_PALETTE, seed=25)
     plt.xlabel('Solver timeout in seconds')
     plt.xscale('log')
     plt.xticks(ticks=[2**x for x in range(12)],
@@ -410,7 +412,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.figure(figsize=(5, 5))
         plt.rcParams['font.size'] = 18
         sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name',
-                     data=plot_results, palette=sns.color_palette('RdPu', 4)[1:], seed=25)
+                     data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 4)[1:],
+                     seed=25)
         plt.xlabel('Number of alternative')
         plt.xticks(range(6))
         plt.ylabel(metric_name)
@@ -430,7 +433,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.figure(figsize=(5, 5))
         plt.rcParams['font.size'] = 18
         sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name',
-                     data=plot_results, palette=sns.color_palette('RdPu', 4)[1:], seed=25)
+                     data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 4)[1:],
+                     seed=25)
         plt.xlabel('Number of alternative')
         plt.xticks(range(6))
         plt.ylabel('Mean ' + metric_name)
