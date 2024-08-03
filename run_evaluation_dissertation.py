@@ -68,7 +68,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     max_timeout = results['param.timeout'].max()
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
-    print('\n-------- Introduction --------')
+    print('\n---------- 1 Introduction ----------')
 
     print('\n-- Motivation --')
 
@@ -87,7 +87,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\nWhat are the upper bounds of the exemplary subgroup?')
     print(model.get_box_ubs())
 
-    # Figure 1: Exemplary subgroup description
+    # Figure 1.1: Exemplary subgroup description
     j_1, j_2 = model.get_selected_feature_idxs()
     plt.figure(figsize=(8, 3))
     plt.rcParams['font.size'] = 15
@@ -103,11 +103,13 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-exemplary-subgroup.pdf')
 
-    print('\n-------- Experimental Design --------')
+    print('\n---------- 7 Discovering Sparse and Alternative Subgroup Descriptions ----------')
 
-    print('\n------ Datasets ------')
+    print('\n-------- 7.4 Experimental Design --------')
 
-    print('\n## Table 1: Dataset overview ##\n')
+    print('\n------ 7.4.5 Datasets ------')
+
+    print('\n## Table 7.1: Dataset overview ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'Dataset', 'n_instances': '$m$', 'n_features': '$n$'})
     print_results['timeouts-for-max-k'] = print_results['Dataset'].apply(
@@ -131,10 +133,10 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(print_results.style.format(escape='latex', precision=2).hide(axis='index').to_latex(
         hrules=True))
 
-    print('\n-------- Evaluation --------')
+    print('\n-------- 7.5 Evaluation --------')
 
-    print('\n------ Experimental scenario 1: Unconstrained subgroup discovery',
-          '(max timeout, max cardinality, no alternatives) ------')
+    print('\n------ 7.5.1 Unconstrained Subgroup Discovery ------')
+    # max timeout, max cardinality, no alternatives
 
     eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            (results['param.k'] == max_k) &
@@ -172,7 +174,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 2a, 2b: Subgroup quality by subgroup-discovery method
+    # Figures 7.1a, 7.1b: Subgroup quality by subgroup-discovery method
     plot_results = eval_results[['dataset_name', 'sd_name', 'train_nwracc', 'test_nwracc']]
     plot_results = plot_results.melt(id_vars=['sd_name', 'dataset_name'], value_name='nWRAcc',
                                      value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
@@ -196,7 +198,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Tables 2a, 2b: Aggregated runtime by subgroup-discovery-method ##\n')
+    print('\n## Tables 7.2a, 7.2b: Aggregated runtime by subgroup-discovery-method ##\n')
     for (dataset_list, selection_name) in [(all_datasets, 'all-datasets'),
                                            (no_timeout_datasets, 'no-timeout-datasets')]:
         print('Dataset selection:', selection_name, '\n')
@@ -211,7 +213,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\nHow is the difference "entire fitting - only optimization" in runtime distributed?')
     print(eval_results.groupby('sd_name')['time_fit_opt_diff'].describe().transpose().round(2))
 
-    print('\n## Table 3: Correlation of runtime by subgroup-discovery method',
+    print('\n## Table 7.3: Correlation of runtime by subgroup-discovery method',
           '(datasets without timeout in SMT optimization) ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'dataset_name', 'n_instances': '$m$', 'n_features': '$n$'})
@@ -229,7 +231,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results.drop(columns='fitting_time')  # self-correlation is boring
     print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
 
-    print('\n------ Experimental scenario 2: Solver timeouts (no alternatives) ------')
+    print('\n------ 7.5.2 Solver Timeouts ------')
+    # no alternatives
 
     print('\n-- Finished tasks --')
 
@@ -241,7 +244,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
 
-    # Figure 3a: Number of finished SMT tasks over timeouts, by feature cardinality
+    # Figure 7.2a: Number of finished SMT tasks over timeouts, by feature cardinality
     plot_results = print_results.copy()
     plot_results['param.timeout'] = plot_results['param.timeout'].astype(int)  # Int64 doesn't work
     plt.figure(figsize=(4, 3))
@@ -293,7 +296,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
           '(with maximum cardinality)?')
     print(print_results[evaluation_metrics].mean().round(3))
 
-    # Figure 3b: Subgroup quality over timeouts
+    # Figure 7.2b: Subgroup quality over timeouts
     plot_results = eval_results[['param.timeout', 'train_nwracc', 'test_nwracc']]
     plot_results = plot_results.melt(id_vars=['param.timeout'], value_name='nWRAcc',
                                      value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
@@ -317,8 +320,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-timeouts-nwracc.pdf')
 
-    print('\n------ Experimental scenario 3: Feature-cardinality constraints',
-          '(max timeout, no alternatives) ------')
+    print('\n------ 7.5.3 Feature-Cardinality Constraints ------')
+    # max timeout, no alternatives
 
     eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            results['alt.number'].isin([pd.NA, 0]) &
@@ -350,7 +353,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 4a-4d: Subgroup quality over cardinality "k", by subgroup-discovery method
+    # Figures 7.3a-7.3d: Subgroup quality over cardinality "k", by subgroup-discovery method
     plot_results = eval_results[['dataset_name', 'sd_name', 'param.k',
                                  'train_nwracc', 'test_nwracc']].copy()
     plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
@@ -377,7 +380,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 4: Mean runtime by subgroup-discovery-method and cardinality "k" ##\n')
+    print('\n## Table 7.4: Mean runtime by subgroup-discovery-method and cardinality "k" ##\n')
     print_results = eval_results.groupby(['sd_name', 'param.k'])['fitting_time'].mean()
     print_results = print_results.reset_index().pivot(index='param.k', columns='sd_name',
                                                       values='fitting_time')
@@ -385,8 +388,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results.columns.name = '$k$'
     print(print_results.style.format('{:.2f}~s'.format).to_latex(hrules=True))
 
-    print('\n------ Experimental scenario 4: Alternative subgroup descriptions',
-          '(max timeout, fixed cardinality) ------')
+    print('\n------ 7.5.4 Alternative Subgroup Descriptions ------')
+    # max timeout, fixed cardinality
 
     eval_results = results[results['alt.number'].notna()]
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
@@ -409,8 +412,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup similarity --')
 
-    # Figures 5a, 5b: Subgroup similarity over number of alternatives, by dissimilarity threshold
-    # and subgroup-discovery method
+    # Figures 7.4a, 7.4b: Subgroup similarity over number of alternatives, by dissimilarity
+    # threshold and subgroup-discovery method
     plot_results = eval_results.copy()
     plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
     plot_results['param.tau_abs'] = plot_results['param.tau_abs'].astype(int)
@@ -437,7 +440,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 6a, 6b: Subgroup quality over number of alternatives, by dissimilarity threshold
+    # Figures 7.5a, 7.5b: Subgroup quality over number of alternatives, by dissimilarity threshold
     # and subgroup-discovery method
     for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
         plt.figure(figsize=(5, 5))
@@ -473,7 +476,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 5: Mean runtime over number of alternatives, by dissimilarity threshold',
+    print('\n## Table 7.5: Mean runtime over number of alternatives, by dissimilarity threshold',
           'and subgroup-discovery method ##\n')
     print_results = eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[
         'fitting_time'].mean()
