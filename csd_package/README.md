@@ -1,8 +1,10 @@
-# `csd` -- A Python Package for Constrained Subgroup Discovery
+# `csd` -- A Python Package for (Constrained) Subgroup Discovery
 
-The package `csd` contains several subgroup-discovery methods
-(for datasets with numeric feature values and a binary prediction target)
-and evaluation metrics.
+The package `csd` contains several subgroup-discovery methods and evaluation metrics.
+Besides traditional (unconstrained) subgroup discovery,
+we allow searching subgroup descriptions using a limited number of features (-> feature-cardinality constraint).
+Additionally, some methods allow searching alternative subgroup descriptions,
+which should replicate a given subgroup membership as good as possible while using different features in the description.
 
 This document provides:
 
@@ -11,9 +13,27 @@ This document provides:
 - A [demo](#demo) for discovering subgroups and alternative subgroup descriptions.
 - [Guidelines for developers](#developer-info) who want to modify or extend the code base.
 
+If you use this package for a scientific publication, please cite [our paper](https://doi.org/10.48550/arXiv.2406.01411)
+
+```
+@misc{bach2024using,
+	title={Using Constraints to Discover Sparse and Alternative Subgroup Descriptions},
+	author={Bach, Jakob},
+	howpublished={arXiv:2406.01411v1 [cs.LG]},
+	year={2024},
+	doi={10.48550/arXiv.2406.01411},
+}
+```
+
 ## Setup
 
-You can directly install this package from GitHub:
+You can install our package from [PyPI](https://pypi.org/):
+
+```
+python -m pip install csd
+```
+
+Alternatively, you can install the package from GitHub:
 
 ```bash
 python -m pip install git+https://github.com/Jakob-Bach/Constrained-Subgroup-Discovery.git#subdirectory=csd_package
@@ -34,12 +54,14 @@ Currently, we provide seven subgroup-discovery methods as classes:
 - heuristic search: `BeamSearchSubgroupDiscoverer`, `BestIntervalSubgroupDiscoverer`, `PRIMSubgroupDiscoverer`
 - baselines (simple heuristics): `MORSSubgroupDiscoverer`, `RandomSubgroupDiscoverer`
 
+All methods expect datasets with numeric feature values (as `pd.DataFrame`) and a binary prediction target (as `pd.Series`).
 The heuristics are from literature or adaptations from other packages,
 while we conceived the solver-based methods and baselines.
 All subgroup-discovery methods can discover subgroups (who would have guessed?),
+optionally using a limited number of features in the subgroup description (a feature-cardinality constraint),
 while some of them can also find alternative subgroup descriptions.
 
-Further, we provide four evaluation metrics for binary (`bool` or `int`) subgroup-membership vectors of data objects:
+Further, we provide four evaluation metrics for binary (`bool` or `int`) subgroup-membership vectors:
 
 - `wracc()`: Weighted Relative Accuracy
 - `nwracc()`: Weighted Relative Accuracy normalized to `[-1, 1]`
@@ -72,7 +94,7 @@ While some parameters are specific to the subgroup-discovery method,
 all existing methods have a parameter `k` to limit (upper bound) the number of features selected in the subgroup description.
 The prediction routine classifies data objects as belonging to the subgroup (= 1) or not (= 0).
 `csd` also contains functions to evaluate predictions,
-though metrics for binary classification from `sklearn.metrics` should work as well.
+though the evaluation metrics for binary classification from `sklearn.metrics` should work as well.
 
 Here is a small example for initialization, fitting, prediction, and evaluation:
 
@@ -209,17 +231,17 @@ As a minimum, you should
 `fit()` needs to set the fields `_box_lbs` and `_box_ubs` (inherited from the superclass)
 to contain the features' lower and upper bounds in the subgroup description (as `pandas.Series`).
 If `_box_lbs` and `_box_ubs` are set as fields, `predict()` works automatically with these bounds and need not be overridden.
-For integration into the experimental pipeline, `fit()` should also return a dictionary
+For integration into the experimental pipeline of our paper, `fit()` should also return a dictionary
 with the keys `objective_value`, `optimization_status` (may be `None`), and `optimization_time`.
 If your subgroup-discovery method is not tailored towards a specific objective,
 you may use the `wracc()` or `wracc_np()` from `csd` to guide the search
 (the former is slower but supports more data types, the latter is tailored to `numpy` arrays and faster).
 
-To support feature-cardinality constraints, like the other subgroup-discovery methods,
+To support feature-cardinality constraints, like the existing subgroup-discovery methods,
 you may want to allow setting an upper bound on the number of selected features `k`
 during initialization and observing it during fitting.
 We propose to store `k` in a field called `_k`;
-however, it is not used in the methods of superclass `SubgroupDiscoverer`.
+however, it is not used in the methods of superclass `SubgroupDiscoverer`, as you need to implement the constraint during fitting.
 
 If your subgroup-discovery method should also support the search for alternative subgroup descriptions,
 make it a subclass of `AbstractSubgroupDiscoverer` (which inherits from `SubgroupDiscoverer`).
@@ -231,7 +253,7 @@ The latter should both be able to
 - search for alternative subgroup descriptions by
   - optimizing normalized Hamming similarity (see functions `hamming()` and `hamming_np` in `csd`)
     to the original subgroup (or another notion of subgroup similarity) and
-  - having constraint that at least `tau_abs` features from each previous subgroup description need to be de-selected
+  - having a constraint that at least `tau_abs` features from each previous subgroup description need to be de-selected
     (though not more features than actually were selected, to prevent infeasibilities).
 
 Your implementation of `_optimize()` has to automatically switch the objective and add the constraints for alternatives if necessary.

@@ -3,6 +3,10 @@
 Classes for subgroup-discovery methods: solver-based, heuristics, and baselines. All methods can
 search for original subgroups (subclasses of :class:`SubgroupDiscoverer`), some can also search for
 alternative subgroup descriptions (subclasses of :class:`AlternativeSubgroupDiscoverer`).
+
+Literature
+----------
+Bach (2024): "Using Constraints to Discover Sparse and Alternative Subgroup Descriptions"
 """
 
 
@@ -534,7 +538,7 @@ class MIPSubgroupDiscoverer(SubgroupDiscoverer):
         feature_maxima = X.max().to_list()
         feature_diff_minima = X.apply(lambda col: pd.Series(col.sort_values().unique()).diff(
             ).min()).fillna(0).to_list()
-        # fillna() covers the case that all values are identical, for which we want the the strict
+        # fillna() covers the case that all values are identical, for which we want the strict
         # inequalities to become non-strict (else optimization problem infeasible since
         # inequalities would enforce UB < LB)
 

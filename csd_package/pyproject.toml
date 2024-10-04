@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csd"
-version = "0.0.1"
+version = "1.0.0"
 authors = [
-    {name="Jakob Bach"},
+    {name="Jakob Bach", email="jakob.bach.ka@gmail.com"},
 ]
 description = "(Constrained) subgroup discovery"
 keywords = ["subgroup discovery", "constraints", "feature selection", "alternative subgroup descriptions"]
@@ -25,5 +25,5 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Jakob-Bach/Constrained-Subgroup-Discovery"
+Homepage = "https://github.com/Jakob-Bach/Constrained-Subgroup-Discovery/tree/main/csd_package"
 Issues = "https://github.com/Jakob-Bach/Constrained-Subgroup-Discovery/issues"
