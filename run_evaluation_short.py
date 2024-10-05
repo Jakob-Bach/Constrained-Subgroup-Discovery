@@ -103,9 +103,11 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            results['alt.number'].isin([pd.NA, 0]) &
                            results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
+    all_datasets = eval_results['dataset_name'].unique()
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+    print('\nNumber of datasets without solver timeout:', len(no_timeout_datasets))
 
     print('\nHow are the mean values of evaluation metrics distributed over subgroup-discovery',
           'methods and cardinality "k" (all datasets)?')
@@ -122,24 +124,31 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Training-set and test-set subgroup quality --')
 
-    # Figures 2a, 2b: Subgroup quality over cardinality "k", by subgroup-discovery method
-    plot_results = eval_results[['sd_name', 'param.k', 'train_nwracc', 'test_nwracc']].copy()
+    # Figures 2a-2c: Subgroup quality by subgroup-discovery method and feature-cardinality
+    # threshold (subfigures: train/test and timeouts y/n; only 3/4 plots actually used in paper)
+    plot_results = eval_results[['dataset_name', 'sd_name', 'param.k',
+                                 'train_nwracc', 'test_nwracc']].copy()
     plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
     for metric, metric_name in [('train_nwracc', 'Train nWRAcc'), ('test_nwracc', 'Test nWRAcc')]:
-        plt.figure(figsize=(4, 3))
-        plt.rcParams['font.size'] = 14
-        sns.lineplot(x='param.k', y=metric, hue='sd_name', style='sd_name', data=plot_results,
-                     palette='Dark2', hue_order=sd_name_plot_order, seed=25)
-        plt.xlabel('Feature cardinality $k$')
-        plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
-        plt.ylabel(metric_name)
-        plt.ylim(-0.05, 0.65)
-        plt.yticks(np.arange(start=0, stop=0.7, step=0.1))
-        plt.legend(title=' ', edgecolor='white', loc='upper left', bbox_to_anchor=(-0.15, -0.1),
-                   columnspacing=0.8, handletextpad=0.3, framealpha=0, ncols=3)
-        plt.figtext(x=0.05, y=0.14, s='Method', rotation='vertical')
-        plt.tight_layout()
-        plt.savefig(plot_dir / f'csd-cardinality-{metric.replace("_", "-")}.pdf')
+        for (dataset_list, selection_name, y_max) in [
+                (all_datasets, 'all-datasets', 0.65),
+                (no_timeout_datasets, 'no-timeout-datasets', 0.85)]:
+            plt.figure(figsize=(4, 3))
+            plt.rcParams['font.size'] = 14
+            sns.lineplot(data=plot_results[plot_results['dataset_name'].isin(dataset_list)],
+                         x='param.k', y=metric, hue='sd_name', style='sd_name', palette='Dark2',
+                         hue_order=sd_name_plot_order, style_order=sd_name_plot_order, seed=25)
+            plt.xlabel('Feature cardinality $k$')
+            plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
+            plt.ylabel(metric_name)
+            plt.ylim(-0.05, y_max)
+            plt.yticks(np.arange(start=0, stop=(y_max + 0.05), step=0.1))
+            plt.legend(title=' ', edgecolor='white', loc='upper left', ncols=3, columnspacing=0.8,
+                       bbox_to_anchor=(-0.15, -0.1), handletextpad=0.3, framealpha=0)
+            plt.figtext(x=0.05, y=0.14, s='Method', rotation='vertical')
+            plt.tight_layout()
+            plt.savefig(plot_dir /
+                        f'csd-cardinality-{metric.replace("_", "-")}-{selection_name}.pdf')
 
     print('\n-- Runtime --')
 
@@ -173,7 +182,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
           'maximum cardinality)?')
     print(eval_results.groupby('param.timeout')[evaluation_metrics].mean().round(3))
 
-    # Figure 2c: Subgroup quality over timeouts
+    # Figure 3b: Subgroup quality by solver timeout and train/test
     plot_results = eval_results[['param.timeout', 'train_nwracc', 'test_nwracc']]
     plot_results = plot_results.melt(id_vars=['param.timeout'], value_name='nWRAcc',
                                      value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
@@ -219,8 +228,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup similarity and quality --')
 
-    # Figures 3a, 3b, 3c: Subgroup similarity and quality over number of alternatives,
-    # by dissimilarity threshold and subgroup-discovery method
+    # Figures 4a-4c: Subgroup similarity and quality by number of alternative, dissimilarity
+    # threshold, and subgroup-discovery method (subfigures: metric)
     plot_results = eval_results.copy()
     plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
     plot_results['param.tau_abs'] = plot_results['param.tau_abs'].astype(int)
