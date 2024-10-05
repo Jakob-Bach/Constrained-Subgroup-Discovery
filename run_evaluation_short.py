@@ -110,14 +110,15 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
     print('\nNumber of datasets without solver timeout:', len(no_timeout_datasets))
 
-    print('\nHow are the mean values of evaluation metrics distributed over subgroup-discovery',
-          'methods and cardinality "k" (all datasets)?')
+    print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
+          'methods and feature-cardinality thresholds (for all datasets)?')
     for metric in evaluation_metrics:
         print(eval_results.groupby(['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
             index='param.k', columns='sd_name').round(3))
 
-    print('\nHow are the mean values of evaluation metrics distributed over subgroup-discovery',
-          'methods and cardinality "k" (datasets without timeouts in SMT optimization)?')
+    print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
+          'methods and feature-cardinality thresholds (for datasets without timeout in SMT',
+          'optimization)?')
     for metric in evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
@@ -153,7 +154,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 1: Mean runtime by subgroup-discovery-method and cardinality "k" ##\n')
+    print('\n## Table 1: Mean runtime by subgroup-discovery method and feature-cardinality',
+          'threshold ##\n')
     print_results = eval_results.groupby(['sd_name', 'param.k'])['fitting_time'].mean()
     print_results = print_results.reset_index().pivot(index='param.k', columns='sd_name',
                                                       values='fitting_time')
@@ -163,7 +165,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Timeout analysis for "Training-set subgroup quality" --')
 
-    print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
+    print('\nWhat is the frequency of finished SMT tasks for different solver timeouts and',
+          'feature-cardinality thresholds?')
     eval_results = results.loc[(results['sd_name'] == 'SMT') &
                                results['alt.number'].isin([pd.NA, 0]) &
                                results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
@@ -202,8 +205,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
           eval_results[(eval_results['param.timeout'] == max_timeout)].groupby('dataset_name')[
               'optimization_status'].agg(lambda x: (x == 'sat').all()).sum())
 
-    print('\nHow is the mean value of evaluation metrics for SMT distributed over timeouts (with',
-          'maximum cardinality)?')
+    print('\nWhat is the mean value of evaluation metrics for SMT with different solver timeouts',
+          '(with maximum cardinality)?')
     print(eval_results.groupby('param.timeout')[evaluation_metrics].mean().round(3))
 
     # Figure 3b: Subgroup quality by solver timeout and train/test
@@ -237,14 +240,15 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
 
-    print('\nHow are the mean values of evaluation metrics distributed over the number of',
-          'alternative and the dissimilarity threshold (all datasets)?')
+    print('\nWhat is the mean value of evaluation metrics for different numbers of alternatives,',
+          'dissimilarity thresholds, and subgroup-discovery methods (for all datasets)?')
     for metric in evaluation_metrics + alt_evaluation_metrics:
         print(eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean(
             ).reset_index().pivot(index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
 
-    print('\nHow are the mean values of evaluation metrics distributed over the number of',
-          'alternative and the dissimilarity threshold (datasets without timeout)?')
+    print('\nWhat is the mean value of evaluation metrics for different numbers of alternatives,',
+          'dissimilarity thresholds, and subgroup-discovery methods (for datasets without',
+          'timeout in SMT optimization)?')
     for metric in evaluation_metrics + alt_evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
@@ -283,8 +287,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 2: Mean runtime over number of alternatives, by dissimilarity threshold',
-          'and subgroup-discovery method ##\n')
+    print('\n## Table 2: Mean runtime by number of alternative, dissimilarity threshold, and',
+          'subgroup-discovery method ##\n')
     print_results = eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[
         'fitting_time'].mean()
     print_results = print_results.reset_index().pivot(index=['sd_name', 'param.tau_abs'],
