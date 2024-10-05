@@ -12,6 +12,7 @@ import argparse
 import pathlib
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -169,6 +170,29 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = eval_results.groupby(['param.k', 'param.timeout'])['optimization_status'].agg(
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
+
+    # Figure 3a: Frequency of finished SMT tasks by solver timeout and feature-cardinality
+    # threshold
+    plot_results = print_results.copy()
+    plot_results['param.timeout'] = plot_results['param.timeout'].astype(int)  # Int64 doesn't work
+    plt.figure(figsize=(4, 3))
+    plt.rcParams['font.size'] = 14
+    sns.lineplot(x='param.timeout', y='finished', hue='param.k', style='param.k',
+                 data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 7)[1:])
+    plt.xlabel('Solver timeout in seconds')
+    plt.xscale('log')
+    plt.xticks(ticks=[2**x for x in range(12)],
+               labels=['$2^{' + str(x) + '}$' if x % 2 == 1 else '' for x in range(12)])
+    plt.xticks(ticks=[], minor=True)
+    plt.ylabel('Finished tasks')
+    plt.yticks(ticks=np.arange(start=0, stop=1.1, step=0.2))
+    plt.gca().yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(xmax=1))
+    plt.ylim(-0.05, 1.05)
+    leg = plt.legend(title='$k$', edgecolor='white', loc='upper left',
+                     bbox_to_anchor=(-0.15, -0.1), columnspacing=1, framealpha=0, ncols=3)
+    leg.get_title().set_position((-109, -31))
+    plt.tight_layout()
+    plt.savefig(plot_dir / 'csd-timeouts-finished-tasks.pdf')
 
     eval_results = results[(results['sd_name'] == 'SMT') & (results['param.k'] == max_k) &
                            results['alt.number'].isin([pd.NA, 0]) &
