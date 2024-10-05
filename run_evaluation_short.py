@@ -22,6 +22,7 @@ import csd
 
 
 plt.rcParams['font.family'] = 'Linux Biolinum'  # fits to serif font "Libertine" from ACM template
+DEFAULT_COL_PALETTE = 'YlGnBu'
 
 
 # Main routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
@@ -77,13 +78,13 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 10
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
-                    data=plot_data, palette='Set2')
+                    data=plot_data, palette=DEFAULT_COL_PALETTE)
     plt.vlines(x=(model.get_box_lbs()[j_1], model.get_box_ubs()[j_1]),
                ymin=model.get_box_lbs()[j_2], ymax=model.get_box_ubs()[j_2],
-               colors=sns.color_palette('Set2', 2)[1])
+               colors=sns.color_palette(DEFAULT_COL_PALETTE, 2)[1])
     plt.hlines(y=(model.get_box_lbs()[j_2], model.get_box_ubs()[j_2]),
                xmin=model.get_box_lbs()[j_1], xmax=model.get_box_ubs()[j_1],
-               colors=sns.color_palette('Set2', 2)[1])
+               colors=sns.color_palette(DEFAULT_COL_PALETTE, 2)[1])
     plt.gca().set_aspect('equal')
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-exemplary-subgroup.pdf')
@@ -181,7 +182,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 14
     sns.lineplot(x='param.timeout', y='nWRAcc', hue='Split', style='Split', data=plot_results,
-                 palette='Set2', seed=25)
+                 palette=DEFAULT_COL_PALETTE, seed=25)
     plt.xlabel('Solver timeout in seconds')
     plt.xscale('log')
     plt.xticks(ticks=[2**x for x in range(12)],
@@ -231,8 +232,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             ('train_nwracc', 'Train nWRAcc', np.arange(start=0.1, stop=0.7, step=0.1))]:
         plt.figure(figsize=(4, 3))
         plt.rcParams['font.size'] = 14
-        sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name',
-                     data=plot_results, palette=sns.color_palette('RdPu', 4)[1:], seed=25)
+        sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name', seed=25,
+                     data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 4)[1:])
         plt.xlabel('Number of alternative')
         plt.xticks(range(6))
         plt.ylabel(metric_name)
