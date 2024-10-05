@@ -97,6 +97,16 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\nHow many instances and features do the datasets have?')
     print(dataset_overview[['n_instances', 'n_features']].describe().round().astype(int))
 
+    print('\n## Table 1: Dataset overview ##\n')
+    print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
+        columns={'dataset': 'Dataset', 'n_instances': '$m$', 'n_features': '$n$'})
+    print_results['Dataset'] = print_results['Dataset'].str.replace('GAMETES', 'G')
+    print_results['Dataset'] = print_results['Dataset'].str.replace('_Epistasis', 'E')
+    print_results['Dataset'] = print_results['Dataset'].str.replace('_Heterogeneity', 'H')
+    print_results.sort_values(by='Dataset', key=lambda x: x.str.lower(), inplace=True)
+    print(print_results.style.format(escape='latex', precision=2).hide(axis='index').to_latex(
+        hrules=True))
+
     print('\n-------- Evaluation --------')
 
     print('\n------ Feature-Cardinality Constraints ------')
@@ -154,7 +164,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 1: Mean runtime by subgroup-discovery method and feature-cardinality',
+    print('\n## Table 2: Mean runtime by subgroup-discovery method and feature-cardinality',
           'threshold ##\n')
     print_results = eval_results.groupby(['sd_name', 'param.k'])['fitting_time'].mean()
     print_results = print_results.reset_index().pivot(index='param.k', columns='sd_name',
@@ -287,7 +297,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 2: Mean runtime by number of alternative, dissimilarity threshold, and',
+    print('\n## Table 3: Mean runtime by number of alternative, dissimilarity threshold, and',
           'subgroup-discovery method ##\n')
     print_results = eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[
         'fitting_time'].mean()
