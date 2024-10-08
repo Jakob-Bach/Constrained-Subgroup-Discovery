@@ -26,6 +26,12 @@ plt.rcParams['font.family'] = 'Linux Biolinum'  # fits to serif font "Libertine"
 DEFAULT_COL_PALETTE = 'YlGnBu'
 
 
+# Sum the number of unique values over all features in a dataset.
+def sum_unique_values(dataset_name: str, data_dir: pathlib.Path) -> int:
+    X, _ = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
+    return X.nunique().sum()
+
+
 # Main routine: Run complete evaluation pipeline. To this end, read results from the "results_dir"
 # and some dataset information from "data_dir". Save plots to the "plot_dir". Print some statistics
 # and LaTeX-ready tables to the console.
@@ -173,6 +179,33 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results.columns.name = '$k$'
     print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
 
+    print('\n## Table 3: Correlation of runtime by subgroup-discovery method and dataset-size',
+          'metric (for maximum cardinality and datasets without timeout in SMT optimization) ##\n')
+    eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
+                           (results['param.k'] == max_k) &
+                           results['alt.number'].isin([pd.NA, 0]) &
+                           results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
+    no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
+        'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
+    no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+    print(f'Number of datasets without solver timeouts: {len(no_timeout_datasets)}\n')
+
+    print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
+        columns={'dataset': 'dataset_name', 'n_instances': '$m$', 'n_features': '$n$'})
+    print_results['$m \\cdot n$'] = print_results['$m$'] * print_results['$n$']
+    print_results['$\\Sigma n^u$'] = print_results['dataset_name'].apply(
+        sum_unique_values, data_dir=data_dir)
+    print_results = print_results.merge(
+        eval_results.loc[eval_results['dataset_name'].isin(no_timeout_datasets),
+                         ['dataset_name', 'sd_name', 'fitting_time']]).drop(columns='dataset_name')
+    print_results = print_results.groupby('sd_name').corr(method='spearman')
+    print_results = print_results['fitting_time'].reset_index()
+    print_results = print_results.pivot(index='sd_name', columns='level_1', values='fitting_time')
+    print_results.index.name = None  # left-over of pivot(), would be an unnecessary row in table
+    print_results.columns.name = 'Method'
+    print_results = print_results.drop(columns='fitting_time')  # self-correlation is boring
+    print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
+
     print('\n-- Timeout analysis for "Training-set subgroup quality" --')
 
     print('\nWhat is the frequency of finished SMT tasks for different solver timeouts and',
@@ -297,7 +330,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 3: Mean runtime by number of alternative, dissimilarity threshold, and',
+    print('\n## Table 4: Mean runtime by number of alternative, dissimilarity threshold, and',
           'subgroup-discovery method ##\n')
     print_results = eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[
         'fitting_time'].mean()
