@@ -155,7 +155,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results.groupby('sd_name')[evaluation_metrics].mean().round(3))
 
     print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
-          'methods (for datasets without timeout in SMT optimization)?')
+          'methods (for datasets without timeouts in SMT optimization)?')
     print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
         'sd_name')[evaluation_metrics].mean().round(3))
 
@@ -171,7 +171,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(print_results[evaluation_metrics].describe().round(3))
 
     print('\nHow is the difference "SMT - Beam" distributed for different evaluation metrics',
-          '(for datasets without timeout in SMT optimization)?')
+          '(for datasets without timeouts in SMT optimization)?')
     print(print_results.loc[print_results['dataset_name'].isin(no_timeout_datasets),
                             evaluation_metrics].describe().round(3))
 
@@ -219,7 +219,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(eval_results.groupby('sd_name')['time_fit_opt_diff'].describe().transpose().round(2))
 
     print('\n## Table 7.3: Correlation of runtime by subgroup-discovery method and dataset-size',
-          'metric (for datasets without timeout in SMT optimization) ##\n')
+          'metric (for datasets without timeouts in SMT optimization) ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'dataset_name', 'n_instances': '$m$', 'n_features': '$n$'})
     print_results['$m \\cdot n$'] = print_results['$m$'] * print_results['$n$']
@@ -346,7 +346,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             index='param.k', columns='sd_name').round(3))
 
     print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
-          'methods and feature-cardinality thresholds (for datasets without timeout in SMT',
+          'methods and feature-cardinality thresholds (for datasets without timeouts in SMT',
           'optimization)?')
     for metric in evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
@@ -494,6 +494,6 @@ if __name__ == '__main__':
                         dest='results_dir', help='Directory with experimental results.')
     parser.add_argument('-p', '--plots', type=pathlib.Path, default='data/plots/',
                         dest='plot_dir', help='Output directory for plots.')
-    print('Evaluation started.\n')
+    print('Evaluation started.')
     evaluate(**vars(parser.parse_args()))
     print('\nEvaluation finished. Plots created and saved.')

@@ -19,6 +19,7 @@ We'll link the experimental data, too.)
 
 is a dissertation in progress.
 Once it is published, we will link it (and its experimental data) here as well.
+Use the tags `run-2024-05-13-dissertation` and `evaluation-2024-11-02-dissertation` for reproducing the experiments.
 
 This document provides:
 
