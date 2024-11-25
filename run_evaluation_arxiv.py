@@ -24,6 +24,7 @@ import csd
 
 
 plt.rcParams['font.family'] = 'Arial'
+DEFAULT_COL_PALETTE = 'YlGnBu'
 
 
 # Sum the number of unique values over all features in a dataset.
@@ -67,7 +68,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     max_timeout = results['param.timeout'].max()
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
-    print('\n-------- Introduction --------')
+    print('\n-------- 1 Introduction --------')
 
     print('\n-- Motivation --')
 
@@ -91,20 +92,20 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(8, 3))
     plt.rcParams['font.size'] = 15
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
-                    data=plot_data, palette='Set2')
+                    style='Target', data=plot_data, palette=DEFAULT_COL_PALETTE)
     plt.vlines(x=(model.get_box_lbs()[j_1], model.get_box_ubs()[j_1]),
                ymin=model.get_box_lbs()[j_2], ymax=model.get_box_ubs()[j_2],
-               colors=sns.color_palette('Set2', 2)[1])
+               colors=sns.color_palette(DEFAULT_COL_PALETTE, 2)[1])
     plt.hlines(y=(model.get_box_lbs()[j_2], model.get_box_ubs()[j_2]),
                xmin=model.get_box_lbs()[j_1], xmax=model.get_box_ubs()[j_1],
-               colors=sns.color_palette('Set2', 2)[1])
+               colors=sns.color_palette(DEFAULT_COL_PALETTE, 2)[1])
     plt.gca().set_aspect('equal')
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-exemplary-subgroup.pdf')
 
-    print('\n-------- Experimental Design --------')
+    print('\n-------- 5 Experimental Design --------')
 
-    print('\n------ Datasets ------')
+    print('\n------ 5.5 Datasets ------')
 
     print('\n## Table 1: Dataset overview ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
@@ -130,10 +131,10 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print(print_results.style.format(escape='latex', precision=2).hide(axis='index').to_latex(
         hrules=True))
 
-    print('\n-------- Evaluation --------')
+    print('\n-------- 6 Evaluation --------')
 
-    print('\n------ Experimental scenario 1: Unconstrained subgroup discovery',
-          '(max timeout, max cardinality, no alternatives) ------')
+    print('\n------ 6.1 Unconstrained Subgroup Discovery ------')
+    # max timeout, max cardinality, no alternatives
 
     eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            (results['param.k'] == max_k) &
@@ -143,17 +144,19 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+    print('\nNumber of datasets without solver timeouts:', len(no_timeout_datasets))
 
-    print('\nHow are the mean values of evaluation metrics distributed (all datasets)?')
+    print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
+          'methods (for all datasets)?')
     print(eval_results.groupby('sd_name')[evaluation_metrics].mean().round(3))
 
-    print('\nHow are the mean values of evaluation metrics distributed (datasets without timeout',
-          'in SMT optimization)?')
+    print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
+          'methods (for datasets without timeouts in SMT optimization)?')
     print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
         'sd_name')[evaluation_metrics].mean().round(3))
 
-    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
-          '(all datasets)?')
+    print('\nHow is the difference "SMT - Beam" distributed for different evaluation metrics',
+          '(for all datasets)?')
     print_results = eval_results.pivot(index=['dataset_name', 'split_idx'], columns='sd_name',
                                        values=evaluation_metrics).reset_index()
     for metric in evaluation_metrics:
@@ -163,14 +166,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results.droplevel(level='sd_name', axis='columns')
     print(print_results[evaluation_metrics].describe().round(3))
 
-    print('\nHow is the difference "SMT - Beam" in the values of evaluation metrics distributed',
-          '(datasets without timeout in SMT optimization)?')
+    print('\nHow is the difference "SMT - Beam" distributed for different evaluation metrics',
+          '(for datasets without timeouts in SMT optimization)?')
     print(print_results.loc[print_results['dataset_name'].isin(no_timeout_datasets),
                             evaluation_metrics].describe().round(3))
 
     print('\n-- Subgroup quality --')
 
-    # Figures 2a, 2b: Subgroup quality by subgroup-discovery method
+    # Figures 2a, 2b: Subgroup quality by subgroup-discovery method (subfigures: timeouts y/n)
     plot_results = eval_results[['dataset_name', 'sd_name', 'train_nwracc', 'test_nwracc']]
     plot_results = plot_results.melt(id_vars=['sd_name', 'dataset_name'], value_name='nWRAcc',
                                      value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
@@ -180,7 +183,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.figure(figsize=(5, 5))
         plt.rcParams['font.size'] = 18
         sns.boxplot(data=plot_results[plot_results['dataset_name'].isin(dataset_list)],
-                    x='sd_name', y='nWRAcc', hue='Split', palette='Set2', order=sd_name_plot_order)
+                    x='sd_name', y='nWRAcc', hue='Split', palette=DEFAULT_COL_PALETTE,
+                    order=sd_name_plot_order)
         plt.xlabel('Subgroup-discovery method')
         plt.xticks(rotation=45, horizontalalignment='right')
         plt.ylim(-0.35, 1.05)
@@ -193,7 +197,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Tables 2a, 2b: Aggregated runtime by subgroup-discovery-method ##\n')
+    print('\n## Tables 2a, 2b: Aggregated runtime by aggregate and subgroup-discovery method',
+          '(subtables: timeouts y/n) ##\n')
     for (dataset_list, selection_name) in [(all_datasets, 'all-datasets'),
                                            (no_timeout_datasets, 'no-timeout-datasets')]:
         print('Dataset selection:', selection_name, '\n')
@@ -205,11 +210,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                              inplace=True)
         print(print_results.transpose().style.format('{:.2f}~s'.format).to_latex(hrules=True))
 
-    print('\nHow is the difference "entire fitting - only optimization" in runtime distributed?')
+    print('\nHow is the difference "entire fitting - only optimization" in runtime distributed',
+          'for different subgroup-discovery methods?')
     print(eval_results.groupby('sd_name')['time_fit_opt_diff'].describe().transpose().round(2))
 
-    print('\n## Table 3: Correlation of runtime by subgroup-discovery method',
-          '(datasets without timeout in SMT optimization) ##\n')
+    print('\n## Table 3: Correlation of runtime by subgroup-discovery method and dataset-size',
+          'metric (for datasets without timeouts in SMT optimization) ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'dataset_name', 'n_instances': '$m$', 'n_features': '$n$'})
     print_results['$m \\cdot n$'] = print_results['$m$'] * print_results['$n$']
@@ -226,11 +232,13 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results.drop(columns='fitting_time')  # self-correlation is boring
     print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
 
-    print('\n------ Experimental scenario 2: Solver timeouts (no alternatives) ------')
+    print('\n------ 6.2 Solver Timeouts ------')
+    # no alternatives
 
     print('\n-- Finished tasks --')
 
-    print('\nHow is the number of finished SMT tasks distributed over timeouts and cardinality?')
+    print('\nWhat is the frequency of finished SMT tasks for different solver timeouts and',
+          'feature-cardinality thresholds?')
     eval_results = results.loc[(results['sd_name'] == 'SMT') &
                                results['alt.number'].isin([pd.NA, 0]) &
                                results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
@@ -238,13 +246,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         lambda x: (x == 'sat').sum() / len(x)).rename('finished').reset_index()
     print(print_results.pivot(index='param.timeout', columns='param.k').applymap('{:.1%}'.format))
 
-    # Figure 3a: Number of finished SMT tasks over timeouts, by feature cardinality
+    # Figure 3a: Frequency of finished SMT tasks by solver timeout and feature-cardinality
+    # threshold
     plot_results = print_results.copy()
     plot_results['param.timeout'] = plot_results['param.timeout'].astype(int)  # Int64 doesn't work
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 15
     sns.lineplot(x='param.timeout', y='finished', hue='param.k', style='param.k',
-                 data=plot_results, palette=sns.color_palette('RdPu', 7)[1:])
+                 data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 7)[1:])
     plt.xlabel('Solver timeout in seconds')
     plt.xscale('log')
     plt.xticks(ticks=[2**x for x in range(12)],
@@ -269,12 +278,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         lambda x: (x != 'sat').all())  # returns Series with bool values and DS names as index
     all_timeout_datasets = all_timeout_datasets[all_timeout_datasets].index.to_list()
 
-    print('\nHow is the mean value of evaluation metrics for SMT distributed over timeouts (with',
-          'maximum cardinality and all datasets)?')
+    print('\nWhat is the mean value of evaluation metrics for SMT with different solver timeouts',
+          '(with maximum cardinality and all datasets)?')
     print(eval_results.groupby('param.timeout')[evaluation_metrics].mean().round(3))
 
-    print('\nHow is the mean value of evaluation metrics for SMT distributed over timeouts (with',
-          'maximum cardinality and timeout-only datasets)?')
+    print('\nWhat is the mean value of evaluation metrics for SMT with different solver timeouts',
+          '(with maximum cardinality and timeout-only datasets)?')
     print(eval_results[eval_results['dataset_name'].isin(all_timeout_datasets)].groupby(
         'param.timeout')[evaluation_metrics].mean().round(3))
 
@@ -290,7 +299,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
           '(with maximum cardinality)?')
     print(print_results[evaluation_metrics].mean().round(3))
 
-    # Figure 3b: Subgroup quality over timeouts
+    # Figure 3b: Subgroup quality by solver timeout and train/test
     plot_results = eval_results[['param.timeout', 'train_nwracc', 'test_nwracc']]
     plot_results = plot_results.melt(id_vars=['param.timeout'], value_name='nWRAcc',
                                      value_vars=['train_nwracc', 'test_nwracc'], var_name='Split')
@@ -299,7 +308,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 15
     sns.lineplot(x='param.timeout', y='nWRAcc', hue='Split', style='Split', data=plot_results,
-                 palette='Set2', seed=25)
+                 palette=DEFAULT_COL_PALETTE, seed=25)
     plt.xlabel('Solver timeout in seconds')
     plt.xscale('log')
     plt.xticks(ticks=[2**x for x in range(12)],
@@ -314,15 +323,17 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-timeouts-nwracc.pdf')
 
-    print('\n------ Experimental scenario 3: Feature-cardinality constraints',
-          '(max timeout, no alternatives) ------')
+    print('\n------ 6.3 Feature-Cardinality Constraints ------')
+    # max timeout, no alternatives
 
     eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            results['alt.number'].isin([pd.NA, 0]) &
                            results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
+    all_datasets = eval_results['dataset_name'].unique()
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+    print('\nNumber of datasets without solver timeouts:', len(no_timeout_datasets))
 
     print('\nHow does the number of actually selected features differ from the prescribed "k"?')
     print(pd.crosstab(
@@ -330,14 +341,15 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         eval_results.loc[eval_results['param.k'] != max_k, 'selected_feature_idxs'].apply(
             len).rename('actually selected')))
 
-    print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
-          '(all datasets)?')
+    print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
+          'methods and feature-cardinality thresholds (for all datasets)?')
     for metric in evaluation_metrics:
         print(eval_results.groupby(['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
             index='param.k', columns='sd_name').round(3))
 
-    print('\nHow are the mean values of evaluation metrics distributed over cardinality "k"',
-          '(datasets without timeout in SMT optimization)?')
+    print('\nWhat is the mean value of evaluation metrics for different subgroup-discovery',
+          'methods and feature-cardinality thresholds (for datasets without timeouts in SMT',
+          'optimization)?')
     for metric in evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
@@ -345,28 +357,36 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 4a, 4b: Subgroup quality over cardinality "k", by subgroup-discovery method
-    plot_results = eval_results[['sd_name', 'param.k', 'train_nwracc', 'test_nwracc']].copy()
+    # Figures 4a-4d: Subgroup quality by subgroup-discovery method and feature-cardinality
+    # threshold (subfigures: train/test and timeouts y/n)
+    plot_results = eval_results[['dataset_name', 'sd_name', 'param.k',
+                                 'train_nwracc', 'test_nwracc']].copy()
     plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
     for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
-        plt.figure(figsize=(5, 5))
-        plt.rcParams['font.size'] = 18
-        sns.lineplot(x='param.k', y=metric, hue='sd_name', style='sd_name', data=plot_results,
-                     palette='Dark2', hue_order=sd_name_plot_order, seed=25)
-        plt.xlabel('Feature cardinality $k$')
-        plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
-        plt.ylabel('Mean ' + metric_name)
-        plt.ylim(-0.05, 0.65)
-        plt.yticks(np.arange(start=0, stop=0.7, step=0.1))
-        plt.legend(title=None, edgecolor='white', loc='upper left',
-                   bbox_to_anchor=(0, -0.25), columnspacing=1, framealpha=0, ncols=2)
-        plt.figtext(x=0.14, y=0.19, s='Method', rotation='vertical')
-        plt.tight_layout()
-        plt.savefig(plot_dir / f'csd-cardinality-{metric.replace("_", "-")}.pdf')
+        for (dataset_list, selection_name, y_max) in [
+                (all_datasets, 'all-datasets', 0.65),
+                (no_timeout_datasets, 'no-timeout-datasets', 0.85)]:
+            plt.figure(figsize=(5, 5))
+            plt.rcParams['font.size'] = 18
+            sns.lineplot(data=plot_results[plot_results['dataset_name'].isin(dataset_list)],
+                         x='param.k', y=metric, hue='sd_name', style='sd_name', palette='Dark2',
+                         hue_order=sd_name_plot_order, style_order=sd_name_plot_order, seed=25)
+            plt.xlabel('Feature cardinality $k$')
+            plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
+            plt.ylabel('Mean ' + metric_name)
+            plt.ylim(-0.05, y_max)
+            plt.yticks(np.arange(start=0, stop=(y_max + 0.05), step=0.1))
+            plt.legend(title=None, edgecolor='white', loc='upper left',
+                       bbox_to_anchor=(0, -0.25), columnspacing=1, framealpha=0, ncols=2)
+            plt.figtext(x=0.14, y=0.19, s='Method', rotation='vertical')
+            plt.tight_layout()
+            plt.savefig(plot_dir /
+                        f'csd-cardinality-{metric.replace("_", "-")}-{selection_name}.pdf')
 
     print('\n-- Runtime --')
 
-    print('\n## Table 4: Mean runtime by subgroup-discovery-method and cardinality "k" ##\n')
+    print('\n## Table 4: Mean runtime by subgroup-discovery method and feature-cardinality',
+          'threshold ##\n')
     print_results = eval_results.groupby(['sd_name', 'param.k'])['fitting_time'].mean()
     print_results = print_results.reset_index().pivot(index='param.k', columns='sd_name',
                                                       values='fitting_time')
@@ -374,22 +394,24 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results.columns.name = '$k$'
     print(print_results.style.format('{:.2f}~s'.format).to_latex(hrules=True))
 
-    print('\n------ Experimental scenario 4: Alternative subgroup descriptions',
-          '(max timeout, fixed cardinality) ------')
+    print('\n------ 6.4 Alternative Subgroup Descriptions ------')
+    # max timeout, fixed cardinality
 
     eval_results = results[results['alt.number'].notna()]
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
     no_timeout_datasets = no_timeout_datasets[no_timeout_datasets].index.to_list()
+    print('\nNumber of datasets without solver timeouts:', len(no_timeout_datasets))
 
-    print('\nHow are the mean values of evaluation metrics distributed over the number of',
-          'alternative and the dissimilarity threshold (all datasets)?')
+    print('\nWhat is the mean value of evaluation metrics for different numbers of alternatives,',
+          'dissimilarity thresholds, and subgroup-discovery methods (for all datasets)?')
     for metric in evaluation_metrics + alt_evaluation_metrics:
         print(eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean(
             ).reset_index().pivot(index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
 
-    print('\nHow are the mean values of evaluation metrics distributed over the number of',
-          'alternative and the dissimilarity threshold (datasets without timeout)?')
+    print('\nWhat is the mean value of evaluation metrics for different numbers of alternatives,',
+          'dissimilarity thresholds, and subgroup-discovery methods (for datasets without',
+          'timeout in SMT optimization)?')
     for metric in evaluation_metrics + alt_evaluation_metrics:
         print(eval_results[eval_results['dataset_name'].isin(no_timeout_datasets)].groupby(
             ['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
@@ -397,8 +419,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup similarity --')
 
-    # Figures 5a, 5b: Subgroup similarity over number of alternatives, by dissimilarity threshold
-    # and subgroup-discovery method
+    # Figures 5a, 5b: Subgroup similarity by number of alternative, dissimilarity threshold,
+    # and subgroup-discovery method (subfigures: similarity measure)
     plot_results = eval_results.copy()
     plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
     plot_results['param.tau_abs'] = plot_results['param.tau_abs'].astype(int)
@@ -410,7 +432,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.figure(figsize=(5, 5))
         plt.rcParams['font.size'] = 18
         sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name',
-                     data=plot_results, palette=sns.color_palette('RdPu', 4)[1:], seed=25)
+                     data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 4)[1:],
+                     seed=25)
         plt.xlabel('Number of alternative')
         plt.xticks(range(6))
         plt.ylabel(metric_name)
@@ -424,13 +447,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Subgroup quality --')
 
-    # Figures 6a, 6b: Subgroup quality over number of alternatives, by dissimilarity threshold
-    # and subgroup-discovery method
+    # Figures 6a, 6b: Subgroup quality by number of alternative, dissimilarity threshold, and
+    # subgroup-discovery method (subfigures: train/test)
     for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
         plt.figure(figsize=(5, 5))
         plt.rcParams['font.size'] = 18
         sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name',
-                     data=plot_results, palette=sns.color_palette('RdPu', 4)[1:], seed=25)
+                     data=plot_results, palette=sns.color_palette(DEFAULT_COL_PALETTE, 4)[1:],
+                     seed=25)
         plt.xlabel('Number of alternative')
         plt.xticks(range(6))
         plt.ylabel('Mean ' + metric_name)
@@ -443,9 +467,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         plt.tight_layout()
         plt.savefig(plot_dir / f'csd-alternatives-{metric.replace("_", "-")}.pdf')
 
-    print('\nHow are the mean values of evaluation metrics (shifted to [0, 1] and max-normalized',
-          'with quality of original subgroup) distributed over the number of alternative and the',
-          'dissimilarity threshold (all datasets)?')
+    print('\nWhat is the mean value of evaluation metrics (shifted to [0, 1] and max-normalized',
+          'with the quality of the original subgroup) for different numbers of alternatives,',
+          'dissimilarity thresholds, and subgroup-discovery methods (for all datasets)?')
     norm_metrics = ['train_nwracc', 'test_nwracc']
     norm_group_cols = ['dataset_name', 'split_idx', 'sd_name', 'param.tau_abs']
     norm_results = eval_results[norm_group_cols + ['alt.number'] + norm_metrics].copy()
@@ -459,8 +483,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     print('\n-- Runtime --')
 
-    print('\n## Table 5: Mean runtime over number of alternatives, by dissimilarity threshold',
-          'and subgroup-discovery method ##\n')
+    print('\n## Table 5: Mean runtime by number of alternative, dissimilarity threshold, and',
+          'subgroup-discovery method ##\n')
     print_results = eval_results.groupby(['sd_name', 'alt.number', 'param.tau_abs'])[
         'fitting_time'].mean()
     print_results = print_results.reset_index().pivot(index=['sd_name', 'param.tau_abs'],
@@ -468,8 +492,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results.droplevel(None, axis='columns')  # only included "fitting_time"
     print(print_results.style.format('{:.1f}~s'.format).to_latex(hrules=True, multirow_align='t'))
 
-    print('\nHow is the number of finished SMT tasks distributed over the number of alternative',
-          'and the dissimilarity threshold?')
+    print('\nWhat is the frequency of finished SMT tasks for different numbers of alternatives',
+          'and dissimilarity thresholds?')
     print(eval_results[eval_results['sd_name'] == 'SMT'].groupby(['alt.number', 'param.tau_abs'])[
         'optimization_status'].agg(lambda x: (x == 'sat').sum() / len(x)).rename('').reset_index(
             ).pivot(index='alt.number', columns='param.tau_abs').applymap('{:.1%}'.format))
@@ -486,6 +510,6 @@ if __name__ == '__main__':
                         dest='results_dir', help='Directory with experimental results.')
     parser.add_argument('-p', '--plots', type=pathlib.Path, default='data/plots/',
                         dest='plot_dir', help='Output directory for plots.')
-    print('Evaluation started.\n')
+    print('Evaluation started.')
     evaluate(**vars(parser.parse_args()))
     print('\nEvaluation finished. Plots created and saved.')
