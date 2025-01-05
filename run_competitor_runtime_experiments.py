@@ -32,6 +32,9 @@ SD_METHODS = {
     'pysubdisc.BestFirst': runtime_competitors.Pysubdisc_BestFirst,
     'pysubdisc.BreadthFirst': runtime_competitors.Pysubdisc_BreadthFirst,
     'pysubdisc.DepthFirst': runtime_competitors.Pysubdisc_DepthFirst,
+    'sd4py.Beam': runtime_competitors.SD4Py_Beam,
+    'sd4py.BSD': runtime_competitors.SD4Py_BSD,
+    'sd4py.SDMap': runtime_competitors.SD4Py_SDMap,
 }
 
 
