@@ -35,6 +35,10 @@ SD_METHODS = {
     'sd4py.Beam': runtime_competitors.SD4Py_Beam,
     'sd4py.BSD': runtime_competitors.SD4Py_BSD,
     'sd4py.SDMap': runtime_competitors.SD4Py_SDMap,
+    'subgroups.BSD': runtime_competitors.Subgroups_BSD,
+    'subgroups.SDMap': runtime_competitors.Subgroups_SDMap,
+    'subgroups.SDMapStar': runtime_competitors.Subgroups_SDMapStar,
+    'subgroups.VLSD': runtime_competitors.Subgroups_VLSD
 }
 
 
