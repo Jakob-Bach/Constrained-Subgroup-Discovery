@@ -28,6 +28,10 @@ CARDINALITIES = [1, 2, 3, 4, 5, None]  # maximum number of features selected in 
 SD_METHODS = {
     'csd.Beam': runtime_competitors.CSD_BeamSearch,
     'csd.SMT': runtime_competitors.CSD_SMT,
+    'pysubdisc.Beam': runtime_competitors.Pysubdisc_Beam,
+    'pysubdisc.BestFirst': runtime_competitors.Pysubdisc_BestFirst,
+    'pysubdisc.BreadthFirst': runtime_competitors.Pysubdisc_BreadthFirst,
+    'pysubdisc.DepthFirst': runtime_competitors.Pysubdisc_DepthFirst,
 }
 
 
