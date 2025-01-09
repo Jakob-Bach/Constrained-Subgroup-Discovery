@@ -24,7 +24,7 @@ NUM_BINS = 50  # for methods that require discretization of features
 
 def discretize_data(X: pd.DataFrame, num_bins: int = NUM_BINS) -> pd.DataFrame:
     # Equal-frequency binning, integer labels (turned into strings)
-    return X.apply(pd.qcut, axis='columns', q=num_bins, labels=False).astype(str)
+    return X.apply(pd.qcut, axis='columns', q=num_bins, labels=False, duplicates='drop').astype(str)
 
 
 class SDMethod(metaclass=ABCMeta):
