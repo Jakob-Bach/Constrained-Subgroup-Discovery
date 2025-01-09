@@ -116,7 +116,8 @@ def run_experiments(data_dir: pathlib.Path, results_dir: pathlib.Path,
         print('Results directory is not empty. Only missing experiments will be run.')
     experimental_tasks = define_experimental_tasks(data_dir=data_dir, results_dir=results_dir)
     progress_bar = tqdm.tqdm(total=len(experimental_tasks))
-    process_pool = multiprocessing.Pool(processes=n_processes)
+    context = multiprocessing.get_context(method='spawn')
+    process_pool = context.Pool(processes=n_processes)
     results = [process_pool.apply_async(evaluate_experimental_task, kwds=task,
                                         callback=lambda x: progress_bar.update(),
                                         error_callback=error_callback)
