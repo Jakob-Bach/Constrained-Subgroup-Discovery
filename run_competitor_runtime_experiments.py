@@ -13,6 +13,7 @@ import argparse
 import itertools
 import multiprocessing
 import pathlib
+import time
 from typing import Any, Dict, Optional, Sequence
 
 import pandas as pd
@@ -94,6 +95,13 @@ def evaluate_experimental_task(
     return results
 
 
+# Write exception to a file whose name contains a timestamp.
+def error_callback(e: Exception) -> None:
+    file_name = 'error_' + time.strftime('%H_%M_%S', time.localtime()) + '.txt'
+    with open(file_name, mode="w") as file:
+        file.write(str(e))
+
+
 # Main routine: Run competitor-runtime experiments. To this end, read datasets from "data_dir",
 # save results to "results_dir". "n_processes" controls parallelization (over datasets,
 # cross-validation folds, and subgroup-discovery methods); by default, all cores used.
@@ -110,7 +118,8 @@ def run_experiments(data_dir: pathlib.Path, results_dir: pathlib.Path,
     progress_bar = tqdm.tqdm(total=len(experimental_tasks))
     process_pool = multiprocessing.Pool(processes=n_processes)
     results = [process_pool.apply_async(evaluate_experimental_task, kwds=task,
-                                        callback=lambda x: progress_bar.update())
+                                        callback=lambda x: progress_bar.update(),
+                                        error_callback=error_callback)
                for task in experimental_tasks]
     process_pool.close()
     process_pool.join()
