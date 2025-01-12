@@ -22,9 +22,16 @@ BEAM_WIDTH = 10  # for beam search; consistent with our own default beam width
 NUM_BINS = 50  # for methods that require discretization of features
 
 
+def discretize_column(col: pd.Series, num_bins: int) -> pd.Series:
+    if col.nunique() <= num_bins:
+        result, _ = pd.factorize(col)  # each value becomes a category
+    else:
+        result = pd.qcut(col, q=num_bins, labels=False, duplicates='drop')  # equal-frequency bins
+    return result.astype(str)
+
+
 def discretize_data(X: pd.DataFrame, num_bins: int = NUM_BINS) -> pd.DataFrame:
-    # Equal-frequency binning, integer labels (turned into strings)
-    return X.apply(pd.qcut, axis='columns', q=num_bins, labels=False, duplicates='drop').astype(str)
+    return X.apply(discretize_column, axis='index', num_bins=num_bins)
 
 
 class SDMethod(metaclass=ABCMeta):
