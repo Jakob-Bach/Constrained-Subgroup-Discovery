@@ -36,35 +36,54 @@ Use the tags `run-2024-05-13-dissertation` and `evaluation-2024-11-02-dissertati
 
 ## Repo Structure
 
-Currently, the repository contains seven Python files and four non-code files.
-The non-code files are:
+Currently, the repository consists of three directories and three files at the top level.
+
+The top-level files are:
 
 - `.gitignore`: For Python development.
 - `LICENSE`: The software is MIT-licensed, so feel free to use the code.
 - `README.md`: You are here :upside_down_face:
-- `requirements.txt`: To set up an environment with all necessary dependencies; see below for details.
 
-The code files comprise our experimental pipeline (see below for details):
+The directory `csd_package/` contains the Python package `csd`,
+which comprises the subgroup-discovery methods and evaluation metrics we implemented for our experiments.
+You can use this package independently of our experiments.
+See the corresponding [README](csd_package/README.md) for more information.
+
+The directory `main_experiments/` contains the experiments described in the publications listed above.
 
 - `prepare_datasets.py`: First stage of the experiments (download prediction datasets).
-- `prepare_demo_datasets.py`: Alternative script for the first stage of the experiments,
-  preparing fewer and smaller datasets (used in some preliminary benchmarking experiments).
 - `run_experiments.py`: Second stage of the experiments (run subgroup discovery).
 - `run_evaluation_(arxiv|dissertation|short).py`: Third stage of the experiments (compute statistics and create plots).
 - `data_handling.py`: Functions for working with prediction datasets and experimental data.
+- `sd4py_methods.py`: Classes wrapping methods from the package `sd4py` for our main experimental pipeline
+  (the remaining subgroup-discovery methods are implemented by us and reside in the package `csd`).
+- `requirements.txt`: To set up an environment with all necessary dependencies; see below for details.
 
-Additionally, we have organized the subgroup-discovery methods for our experiments as the standalone Python package `csd`,
-located in the directory `csd_package/`.
-See the corresponding [README](csd_package/README.md) for more information.
+The directory `competitor_runtime_experiments/` contains additional experiments,
+which are not described in the publications but helped us choose competitors for our main experiments.
+In particular, we benchmarked the runtime of subgroup-discovery methods from the packages
+`pysubdisc`, `pysubgroup`, `sd4py`, and `subgroups` (besides our package `csd`).
+
+- `prepare_competitor_runtime_datasets.py`: First stage of the experiments (download prediction datasets).
+- `run_competitor_runtime_experiments.py`: Second stage of the experiments (run subgroup discovery).
+- `run_competitor_runtime_evaluation`: Third stage of the experiments (compute statistics).
+- `data_handling.py`: Functions for working with prediction datasets and experimental data (copied from main experiments).
+- `runtime_competitors.py`: Classes wrapping subgroup-discovery methods from multiple packages for our competitor-runtime pipeline.
+- `requirements.txt`: To set up an environment with all necessary dependencies (extends requirements of main experiments).
 
 ## Setup
 
 Before running the scripts to reproduce the experiments, you should
 
-1) Set up an environment (optional but recommended).
-2) Install all necessary dependencies.
+1) Install Python (`3.8` for main experiments, `3.9` for competitor-runtime experiments)
+   and make sure the command `python` works from the command line (check `python --version`).
+2) Install Java 8 and make sure the command `java` works from the command line (check `java -version`).
+   While our implementation of subgroup-discovery methods (in the package `csd`) does not require Java,
+   the packages `pysubdisc` and `sd4py` (used in `run_experiments.py` and `run_competitor_runtime_experiments.py`) do.
+3) Set up an environment for Python (optional but recommended).
+4) Install all necessary Python dependencies.
 
-Our code is implemented in Python (version 3.8; other versions, including lower ones, might work as well).
+In the following, we describe steps (3) and (4) in detail.
 
 ### Option 1: `conda` Environment
 
@@ -125,7 +144,8 @@ deactivate
 ### Dependency Management
 
 After activating the environment, you can use `python` and `pip` as usual.
-To install all necessary dependencies for this repo, run
+To install all necessary dependencies, go into the directory `main_experiments/` or `competitor_runtime_experiments/`
+(their requirements differ; the latter uses a superset of the former) and run
 
 ```bash
 python -m pip install -r requirements.txt
@@ -140,13 +160,21 @@ python -m pip freeze > requirements.txt
 ## Reproducing the Experiments
 
 After setting up and activating an environment, you are ready to run the code.
-Run
+You need to run three Python scripts, which differ between [main experiments](#main-experiments)
+and [competitor-runtime experiments](#competitor-runtime-experiments).
+All scripts have a few command-line options, which you can see by running the scripts with the `--help` flag like
+
+```bash
+python -m prepare_datasets --help
+```
+
+### Main Experiments
+
+First, download and pre-process the input data for the experiments with
 
 ```bash
 python -m prepare_datasets
 ```
-
-to download and pre-process the input data for the experiments.
 
 Next, start the experimental pipeline with
 
@@ -157,17 +185,46 @@ python -m run_experiments
 Depending on your hardware, this might take some time.
 For example, we had a runtime of roughly 34 hours on a server with an AMD EPYC 7551 CPU (32 physical cores, base clock of 2.0 GHz).
 
-To print statistics and create the plots, run
+Finally, print statistics and create the plots with
 
 ```bash
 python -m run_evaluation_<<version>>
 ```
 
-(The evaluation length differs between versions, as does the plot formatting.
-The arXiv version has the longest and most detailed evaluation.)
+`<<version>>` can be `arxiv`, `dissertation`, or `short`.
+The evaluation length differs between versions, as does the plot formatting.
+The arXiv version has the longest and most detailed evaluation.
 
-All scripts have a few command-line options, which you can see by running the scripts like
+### Competitor-Runtime Experiments
+
+First, download and pre-process the input data for the experiments with
 
 ```bash
-python -m prepare_datasets --help
+python -m prepare_competitor_runtime_datasets
+```
+
+Next, start the experimental pipeline with
+
+```bash
+python -m run_competitor_runtime_experiments
+```
+
+Unfortunately, the packages `pysubdisc` and `sd4py` both start a Java Virtual Machine but with different dependencies,
+which causes tasks to crash.
+`sd4py` even starts the JVM just when loading the package, while `pysubdisc` starts it when needed.
+Thus, you should run the pipeline twice:
+
+1) With `sd4py` methods but not `pysubdisc` methods.
+  To this end, remove (or comment) the latter from the dict `SD_METHODS` in `run_competitor_runtime_experiments.py`.
+2) With `pysubdisc` methods but not `sd4py` methods.
+  To this end, remove (or comment) the latter from the dict `SD_METHODS` in `run_competitor_runtime_experiments.py`.
+  Additional, remove (or comment) the `sd4py` import in `runtime_competitor.py`
+  and all classes that depend on it (`SD4PyMethod` and three subclasses).
+
+The remaining subgroup-discovery methods can be included in either run.
+
+Finally, print statistics with
+
+```bash
+python -m run_competitor_runtime_evaluation
 ```
