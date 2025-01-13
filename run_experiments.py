@@ -20,6 +20,7 @@ import tqdm
 
 import data_handling
 import csd
+import sd4py_methods
 
 
 # Different components of the experimental design.
@@ -55,7 +56,9 @@ def define_sd_methods() -> Sequence[Dict[str, Union[csd.SubgroupDiscoverer, Dict
         {'sd_name': 'Random', 'sd_type': csd.RandomSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'PRIM', 'sd_type': csd.PRIMSubgroupDiscoverer, 'sd_args_list': card_args},
         {'sd_name': 'BI', 'sd_type': csd.BestIntervalSubgroupDiscoverer, 'sd_args_list': card_args},
-        {'sd_name': 'Beam', 'sd_type': csd.BeamSearchSubgroupDiscoverer, 'sd_args_list': beam_args}
+        {'sd_name': 'Beam', 'sd_type': csd.BeamSearchSubgroupDiscoverer, 'sd_args_list': beam_args},
+        {'sd_name': 'BSD', 'sd_type': sd4py_methods.BSDSubgroupDiscoverer, 'sd_args_list': card_args},
+        {'sd_name': 'SD-Map', 'sd_type': sd4py_methods.SDMapSubgroupDiscoverer, 'sd_args_list': card_args}
     ]
 
 
