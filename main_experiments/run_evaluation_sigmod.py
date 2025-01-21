@@ -18,8 +18,9 @@ import pandas as pd
 import seaborn as sns
 import sklearn.datasets
 
-import data_handling
 import csd
+import data_handling
+from run_experiments import SD4PY_METHODS, SD4PY_TIMEOUT_DATASETS
 
 
 plt.rcParams['font.family'] = 'Linux Biolinum'  # fits to serif font "Libertine" from ACM template
@@ -47,11 +48,19 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     results = data_handling.load_results(directory=results_dir)
     dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
 
+    # For some datasets, we did not run the exhaustive SD4Py methods in the unconstrained scenario
+    # (would have taken too long); fill these missing rows with results from max fixed "k" (k=5):
+    fill_results = results[(results['dataset_name'].isin(SD4PY_TIMEOUT_DATASETS)) &
+                           (results['sd_name'].isin(SD4PY_METHODS)) &
+                           (results['param.k'] == results['param.k'].max())].copy()
+    fill_results['param.k'] = float('nan')  # value of "k" for unconstrained scenario
+    results = pd.concat([results, fill_results], ignore_index=True)
+
     # Define column lists for evaluation:
     results['nwracc_train_test_diff'] = results['train_nwracc'] - results['test_nwracc']
     evaluation_metrics = ['fitting_time', 'train_nwracc', 'test_nwracc', 'nwracc_train_test_diff']
     alt_evaluation_metrics = ['alt.hamming', 'alt.jaccard']
-    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'PRIM', 'MORS', 'Random']
+    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'BSD', 'MORS', 'PRIM', 'Random', 'SD-Map']
 
     # Define constants for filtering results:
     int_na_columns = ['param.k', 'param.timeout', 'param.tau_abs', 'alt.number']
@@ -85,7 +94,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.figure(figsize=(4, 3))
     plt.rcParams['font.size'] = 10
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
-                    data=plot_data, palette=DEFAULT_COL_PALETTE)
+                    style='Target', data=plot_data, palette=DEFAULT_COL_PALETTE)
     plt.vlines(x=(model.get_box_lbs()[j_1], model.get_box_ubs()[j_1]),
                ymin=model.get_box_lbs()[j_2], ymax=model.get_box_ubs()[j_2],
                colors=sns.color_palette(DEFAULT_COL_PALETTE, 2)[1])
@@ -120,6 +129,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            results['alt.number'].isin([pd.NA, 0]) &
                            results['param.tau_abs'].isin([pd.NA, min_tau_abs])]
+    assert eval_results.groupby('sd_name').size().nunique() == 1  # same num of results per method
     all_datasets = eval_results['dataset_name'].unique()
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
         'optimization_status'].agg(lambda x: (x == 'sat').all())  # bool Series with names as index
@@ -150,20 +160,21 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     for metric, metric_name in [('train_nwracc', 'Train nWRAcc'), ('test_nwracc', 'Test nWRAcc')]:
         for (dataset_list, selection_name, y_max) in [
                 (all_datasets, 'all-datasets', 0.65),
-                (no_timeout_datasets, 'no-timeout-datasets', 0.85)]:
-            plt.figure(figsize=(4, 3))
+                (no_timeout_datasets, 'no-timeout-datasets', 0.75)]:
+            plt.figure(figsize=(4, 4))
             plt.rcParams['font.size'] = 14
             sns.lineplot(data=plot_results[plot_results['dataset_name'].isin(dataset_list)],
                          x='param.k', y=metric, hue='sd_name', style='sd_name', palette='Dark2',
-                         hue_order=sd_name_plot_order, style_order=sd_name_plot_order, seed=25)
+                         hue_order=sd_name_plot_order, style_order=sd_name_plot_order, seed=25,
+                         errorbar=None)  # draw only mean, no confidence intervals (easier to read)
             plt.xlabel('Feature cardinality $k$')
             plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
             plt.ylabel(metric_name)
             plt.ylim(-0.05, y_max)
             plt.yticks(np.arange(start=0, stop=(y_max + 0.05), step=0.1))
-            plt.legend(title=' ', edgecolor='white', loc='upper left', ncols=3, columnspacing=0.8,
-                       bbox_to_anchor=(-0.15, -0.1), handletextpad=0.3, framealpha=0)
-            plt.figtext(x=0.05, y=0.14, s='Method', rotation='vertical')
+            plt.legend(title=' ', edgecolor='white', loc='upper left', ncols=3, columnspacing=0.6,
+                       bbox_to_anchor=(-0.15, -0.1), handletextpad=0.2, framealpha=0)
+            plt.figtext(x=0.05, y=0.13, s='Method', rotation='vertical')
             plt.tight_layout()
             plt.savefig(plot_dir /
                         f'csd-cardinality-{metric.replace("_", "-")}-{selection_name}.pdf')
@@ -173,11 +184,11 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\n## Table 2: Mean runtime by subgroup-discovery method and feature-cardinality',
           'threshold ##\n')
     print_results = eval_results.groupby(['sd_name', 'param.k'])['fitting_time'].mean()
-    print_results = print_results.reset_index().pivot(index='param.k', columns='sd_name',
+    print_results = print_results.reset_index().pivot(index='sd_name', columns='param.k',
                                                       values='fitting_time')
     print_results.index.name = None
     print_results.columns.name = '$k$'
-    print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
+    print(print_results.style.format('{:.1f}'.format).to_latex(hrules=True))
 
     print('\n## Table 3: Correlation of runtime by subgroup-discovery method and dataset-size',
           'metric (for maximum cardinality and datasets without timeout in SMT optimization) ##\n')
