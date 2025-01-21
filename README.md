@@ -53,7 +53,7 @@ The directory `main_experiments/` contains the experiments described in the publ
 
 - `prepare_datasets.py`: First stage of the experiments (download prediction datasets).
 - `run_experiments.py`: Second stage of the experiments (run subgroup discovery).
-- `run_evaluation_(arxiv|dissertation|short).py`: Third stage of the experiments (compute statistics and create plots).
+- `run_evaluation_(arxiv|dissertation|sigmod).py`: Third stage of the experiments (compute statistics and create plots).
 - `data_handling.py`: Functions for working with prediction datasets and experimental data.
 - `sd4py_methods.py`: Classes wrapping methods from the package `sd4py` for our main experimental pipeline
   (the remaining subgroup-discovery methods are implemented by us and reside in the package `csd`).
@@ -191,7 +191,7 @@ Finally, print statistics and create the plots with
 python -m run_evaluation_<<version>>
 ```
 
-`<<version>>` can be `arxiv`, `dissertation`, or `short`.
+`<<version>>` can be `arxiv`, `dissertation`, or `sigmod`.
 The evaluation length differs between versions, as does the plot formatting.
 The arXiv version has the longest and most detailed evaluation.
 

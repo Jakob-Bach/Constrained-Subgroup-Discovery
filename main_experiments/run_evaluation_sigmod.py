@@ -1,10 +1,10 @@
-"""Run short evaluation
+"""Run SIGMOD evaluation
 
-Script to compute summary statistics and create plots + tables for the short version of the paper.
+Script to compute summary statistics and create plots + tables for the SIGMOD version of the paper.
 Should be run after the experimental pipeline, as this evaluation script requires the pipeline's
 outputs as inputs.
 
-Usage: python -m run_evaluation_short --help
+Usage: python -m run_evaluation_sigmod --help
 """
 
 
