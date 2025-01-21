@@ -63,6 +63,20 @@ def define_sd_methods() -> Sequence[Dict[str, Union[csd.SubgroupDiscoverer, Dict
     ]
 
 
+SD4PY_METHODS = ['BSD', 'SD-Map']
+SD4PY_TIMEOUT_DATASETS = ['coil2000', 'Hill_Valley_with_noise', 'sonar', 'spambase', 'spectf']
+
+
+# While the exhaustive search methods from the package "SD4Py" are generally fast, they did not
+# finish the unconstrained setting within two days on some datasets. For these, we manually exclude
+# the unconstrained setting.
+def filter_infeasible_args(dataset_name: str, sd_name: str,
+                           sd_args_list: Sequence[Dict[str, Any]]) -> Sequence[Dict[str, Any]]:
+    if (dataset_name in SD4PY_TIMEOUT_DATASETS) and (sd_name in SD4PY_METHODS):
+        sd_args_list = [args for args in sd_args_list if args['k'] is not None]
+    return sd_args_list
+
+
 # Define experimental tasks (for parallelization) as cross-product of datasets (from "data_dir"),
 # cross-validation folds, and subgroup-discovery methods (each including several hyperparameter
 # settings). Provide a dictionary for calling "evaluate_experimental_task()", only including tasks
@@ -97,6 +111,8 @@ def evaluate_experimental_task(
     X, y = data_handling.load_dataset(dataset_name=dataset_name, directory=data_dir)
     train_idx, test_idx = list(data_handling.split_for_pipeline(X=X, y=y, n_splits=N_FOLDS))[split_idx]
     results = []
+    sd_args_list = filter_infeasible_args(dataset_name=dataset_name, sd_name=sd_name,
+                                          sd_args_list=sd_args_list)  # some settings take too long
     for sd_args in sd_args_list:
         subgroup_discoverer = sd_type(**sd_args)
         X_train = X.iloc[train_idx]
