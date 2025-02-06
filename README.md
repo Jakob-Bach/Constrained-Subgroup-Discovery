@@ -14,7 +14,7 @@ This document provides:
 
 ## Publications
 
-> Bach, Jakob. "Using Constraints to Discover Sparse and Alternative Subgroup Descriptions"
+> Bach, Jakob (2024): "Using Constraints to Discover Sparse and Alternative Subgroup Descriptions"
 
 is published on [arXiv](https://arxiv.org/).
 You can find the paper [here](https://doi.org/10.48550/arXiv.2406.01411).
@@ -27,10 +27,10 @@ Use the tags `run-2024-05-13` and `evaluation-2024-05-15` for reproducing the ex
 Once it's published, we'll add a link to it here.
 We'll link the experimental data, too.)
 
-> Bach, Jakob. "Leveraging Constraints for User-Centric Feature Selection"
+> Bach, Jakob (2025): "Leveraging Constraints for User-Centric Feature Selection"
 
-is a dissertation in progress.
-Once it is published, we will link it here as well.
+is a dissertation at the [Department of Informatics](https://www.informatik.kit.edu/english/index.php) of the [Karlsruhe Institute of Technology](https://www.kit.edu/english/).
+You can find the dissertation [here](https://doi.org/10.5445/IR/1000178649).
 You can find the corresponding complete experimental data (inputs as well as results) on [*RADAR4KIT*](https://doi.org/10.35097/4kjyeg0z2bxmr6eh).
 Use the tags `run-2024-05-13-dissertation` and `evaluation-2024-11-02-dissertation` for reproducing the experiments.
 
