@@ -19,8 +19,9 @@ import pandas as pd
 import seaborn as sns
 import sklearn.datasets
 
-import data_handling
 import csd
+import data_handling
+from run_experiments import SD4PY_METHODS, SD4PY_TIMEOUT_DATASETS
 
 
 plt.rcParams['font.family'] = 'Arial'
@@ -48,6 +49,14 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     results = data_handling.load_results(directory=results_dir)
     dataset_overview = data_handling.load_dataset_overview(directory=data_dir)
 
+    # For some datasets, we did not run the exhaustive SD4Py methods in the unconstrained scenario
+    # (would have taken too long); fill these missing rows with results from max fixed "k" (k=5):
+    fill_results = results[(results['dataset_name'].isin(SD4PY_TIMEOUT_DATASETS)) &
+                           (results['sd_name'].isin(SD4PY_METHODS)) &
+                           (results['param.k'] == results['param.k'].max())].copy()
+    fill_results['param.k'] = float('nan')  # value of "k" for unconstrained scenario
+    results = pd.concat([results, fill_results], ignore_index=True)
+
     # Make feature sets proper lists (converting lbs/ubs would be harder, since they contain inf):
     results['selected_feature_idxs'] = results['selected_feature_idxs'].apply(ast.literal_eval)
     assert (results['param.k'].isna() |
@@ -58,7 +67,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     results['nwracc_train_test_diff'] = results['train_nwracc'] - results['test_nwracc']
     evaluation_metrics = ['fitting_time', 'train_nwracc', 'test_nwracc', 'nwracc_train_test_diff']
     alt_evaluation_metrics = ['alt.hamming', 'alt.jaccard']
-    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'PRIM', 'MORS', 'Random']
+    sd_name_plot_order = ['SMT', 'Beam', 'BI', 'BSD', 'MORS', 'PRIM', 'Random', 'SD-Map']
 
     # Define constants for filtering results:
     int_na_columns = ['param.k', 'param.timeout', 'param.tau_abs', 'alt.number']
@@ -205,10 +214,11 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print_results = eval_results[eval_results['dataset_name'].isin(dataset_list)]
         print_results = print_results.groupby('sd_name')['fitting_time'].agg(
             ['mean', 'std', 'median'])
-        print_results.index.name = 'Aggregate'
+        print_results.index.name = None  # would be an unnecessary row in table
+        print_results.columns.name = 'Method'
         print_results.rename(columns={'mean': 'Mean', 'std': 'Standard dev.', 'median': 'Median'},
                              inplace=True)
-        print(print_results.transpose().style.format('{:.2f}~s'.format).to_latex(hrules=True))
+        print(print_results.style.format('{:.2f}~s'.format).to_latex(hrules=True))
 
     print('\nHow is the difference "entire fitting - only optimization" in runtime distributed',
           'for different subgroup-discovery methods?')
@@ -365,12 +375,13 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     for metric, metric_name in [('train_nwracc', 'train nWRAcc'), ('test_nwracc', 'test nWRAcc')]:
         for (dataset_list, selection_name, y_max) in [
                 (all_datasets, 'all-datasets', 0.65),
-                (no_timeout_datasets, 'no-timeout-datasets', 0.85)]:
-            plt.figure(figsize=(5, 5))
+                (no_timeout_datasets, 'no-timeout-datasets', 0.75)]:
+            plt.figure(figsize=(5, 6))
             plt.rcParams['font.size'] = 18
             sns.lineplot(data=plot_results[plot_results['dataset_name'].isin(dataset_list)],
                          x='param.k', y=metric, hue='sd_name', style='sd_name', palette='Dark2',
-                         hue_order=sd_name_plot_order, style_order=sd_name_plot_order, seed=25)
+                         hue_order=sd_name_plot_order, style_order=sd_name_plot_order, seed=25,
+                         errorbar=None)  # draw only mean, no confidence intervals (easier to read)
             plt.xlabel('Feature cardinality $k$')
             plt.xticks(ticks=range(1, 7), labels=(list(range(1, 6)) + [max_k]))
             plt.ylabel('Mean ' + metric_name)
@@ -378,7 +389,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             plt.yticks(np.arange(start=0, stop=(y_max + 0.05), step=0.1))
             plt.legend(title=None, edgecolor='white', loc='upper left',
                        bbox_to_anchor=(0, -0.25), columnspacing=1, framealpha=0, ncols=2)
-            plt.figtext(x=0.14, y=0.19, s='Method', rotation='vertical')
+            plt.figtext(x=0.14, y=0.20, s='Method', rotation='vertical')
             plt.tight_layout()
             plt.savefig(plot_dir /
                         f'csd-cardinality-{metric.replace("_", "-")}-{selection_name}.pdf')
@@ -388,11 +399,11 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\n## Table 4: Mean runtime by subgroup-discovery method and feature-cardinality',
           'threshold ##\n')
     print_results = eval_results.groupby(['sd_name', 'param.k'])['fitting_time'].mean()
-    print_results = print_results.reset_index().pivot(index='param.k', columns='sd_name',
+    print_results = print_results.reset_index().pivot(index='sd_name', columns='param.k',
                                                       values='fitting_time')
     print_results.index.name = None
     print_results.columns.name = '$k$'
-    print(print_results.style.format('{:.2f}~s'.format).to_latex(hrules=True))
+    print(print_results.style.format('{:.1f}~s'.format).to_latex(hrules=True))
 
     print('\n------ 6.4 Alternative Subgroup Descriptions ------')
     # max timeout, fixed cardinality
