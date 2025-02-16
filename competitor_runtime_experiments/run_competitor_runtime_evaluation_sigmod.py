@@ -1,11 +1,11 @@
-"""Run competitor-runtime evaluation
+"""Run SIGMOD competitor-runtime evaluation
 
-Script to compute summary statistics for the competitor-runtime experiments. Should be run after
-the corresponding experimental pipeline, as this evaluation script requires the competitor-runtime
-pipeline's outputs as inputs. Currently a mixture of printing general statistics and specifically
-formatted tables for the SIGMOD revision's cover letter.
+Script to compute summary statistics and create tables for the competitor-runtime experiments for
+the SIGMOD revision phase (used in the cover letter, but did not make it into the actual paper).
+Should be run after the corresponding experimental pipeline, as this evaluation script requires the
+competitor-runtime pipeline's outputs as inputs.
 
-Usage: python -m run_competitor_runtime_evaluation --help
+Usage: python -m run_competitor_runtime_evaluation_sigmod --help
 """
 
 

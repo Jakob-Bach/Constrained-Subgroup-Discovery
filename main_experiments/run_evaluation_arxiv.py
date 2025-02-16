@@ -218,7 +218,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
         print_results.columns.name = 'Method'
         print_results.rename(columns={'mean': 'Mean', 'std': 'Standard dev.', 'median': 'Median'},
                              inplace=True)
-        print(print_results.style.format('{:.2f}~s'.format).to_latex(hrules=True))
+        print(print_results.style.format('{:.2f}'.format).to_latex(hrules=True))
 
     print('\nHow is the difference "entire fitting - only optimization" in runtime distributed',
           'for different subgroup-discovery methods?')
@@ -403,7 +403,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
                                                       values='fitting_time')
     print_results.index.name = None
     print_results.columns.name = '$k$'
-    print(print_results.style.format('{:.1f}~s'.format).to_latex(hrules=True))
+    print(print_results.style.format('{:.1f}'.format).to_latex(hrules=True))
 
     print('\n------ 6.4 Alternative Subgroup Descriptions ------')
     # max timeout, fixed cardinality
@@ -501,7 +501,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print_results = print_results.reset_index().pivot(index=['sd_name', 'param.tau_abs'],
                                                       columns='alt.number')
     print_results = print_results.droplevel(None, axis='columns')  # only included "fitting_time"
-    print(print_results.style.format('{:.1f}~s'.format).to_latex(hrules=True, multirow_align='t'))
+    print(print_results.style.format('{:.1f}'.format).to_latex(hrules=True, multirow_align='t'))
 
     print('\nWhat is the frequency of finished SMT tasks for different numbers of alternatives',
           'and dissimilarity thresholds?')

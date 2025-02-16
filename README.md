@@ -18,8 +18,9 @@ This document provides:
 
 is published on [arXiv](https://arxiv.org/).
 You can find the paper [here](https://doi.org/10.48550/arXiv.2406.01411).
-You can find the corresponding complete experimental data (inputs as well as results) on [*RADAR4KIT*](https://doi.org/10.35097/caKKJCtoKqgxyvqG).
-Use the tags `run-2024-05-13` and `evaluation-2024-05-15` for reproducing the experiments.
+You can find the corresponding complete experimental data (inputs as well as results) on *RADAR4KIT*.
+Use the tags `run-2024-05-13` and `evaluation-2024-05-15` for reproducing the [experimental data for v1](https://doi.org/10.35097/caKKJCtoKqgxyvqG) of the paper.
+Use the tags `run-2025-01-21-arXiv-v2` and `evaluation-2025-02-16-arXiv-v2` for reproducing the experimental data for v2 of the paper.
 
 > Bach, Jakob. "..."
 
@@ -66,7 +67,7 @@ In particular, we benchmarked the runtime of subgroup-discovery methods from the
 
 - `prepare_competitor_runtime_datasets.py`: First stage of the experiments (download prediction datasets).
 - `run_competitor_runtime_experiments.py`: Second stage of the experiments (run subgroup discovery).
-- `run_competitor_runtime_evaluation`: Third stage of the experiments (compute statistics).
+- `run_competitor_runtime_evaluation_(arxiv|sigmod)`: Third stage of the experiments (compute statistics).
 - `data_handling.py`: Functions for working with prediction datasets and experimental data (copied from main experiments).
 - `runtime_competitors.py`: Classes wrapping subgroup-discovery methods from multiple packages for our competitor-runtime pipeline.
 - `requirements.txt`: To set up an environment with all necessary dependencies (extends requirements of main experiments).
@@ -226,5 +227,7 @@ The remaining subgroup-discovery methods can be included in either run.
 Finally, print statistics with
 
 ```bash
-python -m run_competitor_runtime_evaluation
+python -m run_competitor_runtime_evaluation_<<version>>
 ```
+
+`<<version>>` can be `arxiv` or `sigmod`.
