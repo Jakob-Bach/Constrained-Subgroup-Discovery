@@ -20,7 +20,7 @@ is published on [arXiv](https://arxiv.org/).
 You can find the paper [here](https://doi.org/10.48550/arXiv.2406.01411).
 You can find the corresponding complete experimental data (inputs as well as results) on *RADAR4KIT*.
 Use the tags `run-2024-05-13` and `evaluation-2024-05-15` for reproducing the [experimental data for v1](https://doi.org/10.35097/caKKJCtoKqgxyvqG) of the paper.
-Use the tags `run-2025-01-21-arXiv-v2` and `evaluation-2025-02-16-arXiv-v2` for reproducing the experimental data for v2 of the paper.
+Use the tags `run-2025-01-21-arXiv-v2` and `evaluation-2025-02-16-arXiv-v2` for reproducing the [experimental data for v2](https://doi.org/10.35097/8ppb5x50nyvw1wa7) of the paper.
 
 > Bach, Jakob. "..."
 
