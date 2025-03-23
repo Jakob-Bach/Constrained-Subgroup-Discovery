@@ -24,6 +24,8 @@ from run_experiments import SD4PY_METHODS, SD4PY_TIMEOUT_DATASETS
 
 
 plt.rcParams['font.family'] = 'Linux Biolinum'  # fits to serif font "Libertine" from ACM template
+plt.rcParams['pdf.fonttype'] = 42  # as requested for camera-ready: TrueType instead of Type3
+plt.rcParams['ps.fonttype'] = 42
 DEFAULT_COL_PALETTE = 'YlGnBu'
 
 
@@ -70,7 +72,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     max_timeout = results['param.timeout'].max()
     min_tau_abs = results['param.tau_abs'].min()  # could also be any other unique value of tau_abs
 
-    print('\n-------- Introduction --------')
+    print('\n-------- 1 Introduction --------')
 
     print('\n-- Motivation --')
 
@@ -91,8 +93,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
 
     # Figure 1: Exemplary subgroup description
     j_1, j_2 = model.get_selected_feature_idxs()
-    plt.figure(figsize=(4, 3))
-    plt.rcParams['font.size'] = 10
+    plt.figure(figsize=(8, 3))
+    plt.rcParams['font.size'] = 14
     sns.scatterplot(x=plot_data.columns[j_1], y=plot_data.columns[j_2], hue='Target',
                     style='Target', data=plot_data, palette=DEFAULT_COL_PALETTE)
     plt.vlines(x=(model.get_box_lbs()[j_1], model.get_box_ubs()[j_1]),
@@ -105,7 +107,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-exemplary-subgroup.pdf')
 
-    print('\n-------- Experimental Design --------')
+    print('\n-------- 5 Experimental Design --------')
 
     print('\n-- Datasets --')
 
@@ -115,16 +117,12 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     print('\n## Table 1: Dataset overview ##\n')
     print_results = dataset_overview[['dataset', 'n_instances', 'n_features']].rename(
         columns={'dataset': 'Dataset', 'n_instances': '$m$', 'n_features': '$n$'})
-    print_results['Dataset'] = print_results['Dataset'].str.replace('GAMETES', 'G')
-    print_results['Dataset'] = print_results['Dataset'].str.replace('_Epistasis', 'E')
-    print_results['Dataset'] = print_results['Dataset'].str.replace('_Heterogeneity', 'H')
     print_results.sort_values(by='Dataset', key=lambda x: x.str.lower(), inplace=True)
-    print(print_results.style.format(escape='latex', precision=2).hide(axis='index').to_latex(
-        hrules=True))
+    print(print_results.style.format(escape='latex').hide(axis='index').to_latex(hrules=True))
 
-    print('\n-------- Evaluation --------')
+    print('\n-------- 6 Evaluation --------')
 
-    print('\n------ Feature-Cardinality Constraints ------')
+    print('\n------ 6.1 Feature-Cardinality Constraints ------')
 
     eval_results = results[results['param.timeout'].isin([pd.NA, max_timeout]) &
                            results['alt.number'].isin([pd.NA, 0]) &
@@ -150,10 +148,10 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             ['sd_name', 'param.k'])[metric].mean().reset_index().pivot(
                 index='param.k', columns='sd_name').round(3))
 
-    print('\n-- Training-set and test-set subgroup quality --')
+    print('\n-- Training-set subgroup quality -- and -- Test-set subgroup quality --')
 
-    # Figures 2a-2c: Subgroup quality by subgroup-discovery method and feature-cardinality
-    # threshold (subfigures: train/test and timeouts y/n; only 3/4 plots actually used in paper)
+    # Figures 2a-2d: Subgroup quality by subgroup-discovery method and feature-cardinality
+    # threshold (subfigures: train/test and timeouts y/n)
     plot_results = eval_results[['dataset_name', 'sd_name', 'param.k',
                                  'train_nwracc', 'test_nwracc']].copy()
     plot_results['param.k'] = plot_results['param.k'].replace({max_k: 6})  # enable lineplot
@@ -173,8 +171,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             plt.ylim(-0.05, y_max)
             plt.yticks(np.arange(start=0, stop=(y_max + 0.05), step=0.1))
             plt.legend(title=' ', edgecolor='white', loc='upper left', ncols=3, columnspacing=0.6,
-                       bbox_to_anchor=(-0.15, -0.1), handletextpad=0.2, framealpha=0)
-            plt.figtext(x=0.05, y=0.13, s='Method', rotation='vertical')
+                       bbox_to_anchor=(-0.15, -0.1), handletextpad=0.2, labelspacing=0.2,
+                       framealpha=0)
+            plt.figtext(x=0.05, y=0.1, s='Method', rotation='vertical')
             plt.tight_layout()
             plt.savefig(plot_dir /
                         f'csd-cardinality-{metric.replace("_", "-")}-{selection_name}.pdf')
@@ -287,7 +286,7 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     plt.tight_layout()
     plt.savefig(plot_dir / 'csd-timeouts-nwracc.pdf')
 
-    print('\n------ Alternative Subgroup Descriptions ------')
+    print('\n------ 6.2 Alternative Subgroup Descriptions ------')
 
     eval_results = results[results['alt.number'].notna()]
     no_timeout_datasets = eval_results[eval_results['sd_name'] == 'SMT'].groupby('dataset_name')[
@@ -308,9 +307,9 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
             ['sd_name', 'alt.number', 'param.tau_abs'])[metric].mean().reset_index().pivot(
                 index=['sd_name', 'alt.number'], columns='param.tau_abs').round(3))
 
-    print('\n-- Subgroup similarity and quality --')
+    print('\n-- Subgroup similarity -- and -- Subgroup quality --')
 
-    # Figures 4a-4c: Subgroup similarity and quality by number of alternative, dissimilarity
+    # Figures 4a-4d: Subgroup similarity and quality by number of alternative, dissimilarity
     # threshold, and subgroup-discovery method (subfigures: metric)
     plot_results = eval_results.copy()
     plot_results['alt.number'] = plot_results['alt.number'].astype(int)  # Int64 doesn't work
@@ -320,7 +319,8 @@ def evaluate(data_dir: pathlib.Path, results_dir: pathlib.Path, plot_dir: pathli
     for metric, metric_name, yticks in [
             ('alt.hamming', 'Norm. Ham. sim.', np.arange(start=0.8, stop=1.05, step=0.1)),
             ('alt.jaccard', 'Jaccard sim.', np.arange(start=0.2, stop=1.05, step=0.2)),
-            ('train_nwracc', 'Train nWRAcc', np.arange(start=0.1, stop=0.7, step=0.1))]:
+            ('train_nwracc', 'Train nWRAcc', np.arange(start=0.1, stop=0.7, step=0.1)),
+            ('test_nwracc', 'Test nWRAcc', np.arange(start=0.1, stop=0.7, step=0.1))]:
         plt.figure(figsize=(4, 3))
         plt.rcParams['font.size'] = 14
         sns.lineplot(x='alt.number', y=metric, hue='_param.tau_abs', style='_sd_name', seed=25,

@@ -22,11 +22,10 @@ You can find the corresponding complete experimental data (inputs as well as res
 Use the tags `run-2024-05-13` and `evaluation-2024-05-15` for reproducing the [experimental data for v1](https://doi.org/10.35097/caKKJCtoKqgxyvqG) of the paper.
 Use the tags `run-2025-01-21-arXiv-v2` and `evaluation-2025-02-16-arXiv-v2` for reproducing the [experimental data for v2](https://doi.org/10.35097/8ppb5x50nyvw1wa7) of the paper.
 
-> Bach, Jakob. "..."
+> Bach, Jakob (2025): "Subgroup Discovery with Small and Alternative Feature Sets"
 
-(To be published at a conference or in a journal.
-Once it's published, we'll add a link to it here.
-We'll link the experimental data, too.)
+is accepted at the conference [SIGMOD 2025](https://2025.sigmod.org/).
+Use the tags `run-2025-01-21-SIGMOD-2025` and `evaluation-2025-03-23-SIGMOD-2025` for reproducing the experiments.
 
 > Bach, Jakob (2025): "Leveraging Constraints for User-Centric Feature Selection"
 
