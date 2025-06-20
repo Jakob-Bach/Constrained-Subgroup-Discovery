@@ -25,7 +25,7 @@ Use the tags `run-2025-01-21-arXiv-v2` and `evaluation-2025-02-16-arXiv-v2` for 
 > Bach, Jakob (2025): "Subgroup Discovery with Small and Alternative Feature Sets"
 
 is published in the proceedings of the conference [SIGMOD 2025](https://2025.sigmod.org/).
-You can find the paper [here](https://doi.org/10.1145/3725358) and the corresponding poster [here](https://doi.org/10.5445/IR/1000182482).
+You can find the paper [here](https://doi.org/10.1145/3725358), the corresponding poster [here](https://doi.org/10.5445/IR/1000182482), and the corresponding presentation [here](https://doi.org/10.5445/IR/1000182483).
 You can find the corresponding complete experimental data (inputs as well as results) on [*RADAR4KIT*](https://doi.org/10.35097/nftgaf7w73hy2491).
 Use the tags `run-2025-01-21-SIGMOD-2025` and `evaluation-2025-03-23-SIGMOD-2025` for reproducing the experiments.
 
